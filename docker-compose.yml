@@ -1,7 +1,5 @@
 services:
   cli-proxy-api:
-    image: ${CLI_PROXY_IMAGE:-eceasy/cli-proxy-api:latest}
-    pull_policy: always
     build:
       context: .
       dockerfile: Dockerfile
@@ -17,7 +15,7 @@ services:
     ports:
       - "8317:8317"
       - "8085:8085"
-      - "1455:1455"
+      # - "1455:1455"
       - "54545:54545"
       - "51121:51121"
       - "11451:11451"

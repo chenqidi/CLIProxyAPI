@@ -20,6 +20,7 @@ objectstore/*
 
 # Static assets
 static/*
+!static/management.html
 
 # Authentication data
 auths/*
@@ -30,6 +31,8 @@ docs/*
 AGENTS.md
 CLAUDE.md
 GEMINI.md
+task.md
+task-history.md
 
 # Tooling metadata
 .vscode/*
