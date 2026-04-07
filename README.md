@@ -38,6 +38,10 @@ Get 10% OFF GLM CODING PLAN：https://z.ai/subscribe?ic=8JVLJQFSKB
 <td width="180"><a href="https://www.lingtrue.com/register"><img src="./assets/lingtrue.png" alt="LingtrueAPI" width="150"></a></td>
 <td>Thanks to LingtrueAPI for its sponsorship of this project! LingtrueAPI is a global large - model API intermediary service platform that provides API calling services for various top - notch models such as Claude Code, Codex, and Gemini. It is committed to enabling users to connect to global AI capabilities at low cost and with high stability. LingtrueAPI offers special discounts to users of this software: register using <a href="https://www.lingtrue.com/register">this link</a>, and enter the promo code "LingtrueAPI" when making the first recharge to enjoy a 10% discount.</td>
 </tr>
+<tr>
+<td width="180"><a href="https://poixe.com/i/m8kvep"><img src="./assets/poixeai.png" alt="PoixeAI" width="150"></a></td>
+<td>Thanks to Poixe AI for sponsoring this project! Poixe AI provides reliable LLM API services. You can leverage the platform's API endpoints to seamlessly build AI-powered products. Additionally, you can become a vendor by providing AI API resources to the platform and earn revenue. Register through the exclusive CLIProxyAPI <a href="https://poixe.com/i/m8kvep">referral link</a> and receive a bonus of $5 USD on your first top-up.</td>
+</tr>
 </tbody>
 </table>
 
@@ -126,10 +130,6 @@ Browser-based tool to translate SRT subtitles using your Gemini subscription via
 
 CLI wrapper for instant switching between multiple Claude accounts and alternative models (Gemini, Codex, Antigravity) via CLIProxyAPI OAuth - no API keys needed
 
-### [ProxyPal](https://github.com/heyhuynhgiabuu/proxypal)
-
-Native macOS GUI for managing CLIProxyAPI: configure providers, model mappings, and endpoints via OAuth - no API keys needed.
-
 ### [Quotio](https://github.com/nguyenphutrong/quotio)
 
 Native macOS menu bar app that unifies Claude, Gemini, OpenAI, Qwen, and Antigravity subscriptions with real-time quota tracking and smart auto-failover for AI coding tools like Claude Code, OpenCode, and Droid - no API keys needed.
@@ -176,6 +176,10 @@ Shadow AI is an AI assistant tool designed specifically for restricted environme
 mode without windows or traces, and enables cross-device AI Q&A interaction and control via the local area network (
 LAN). Essentially, it is an automated collaboration layer of "screen/audio capture + AI inference + low-friction delivery",
 helping users to immersively use AI assistants across applications on controlled devices or in restricted environments.
+
+### [ProxyPal](https://github.com/buddingnewinsights/proxypal)
+
+Cross-platform desktop app (macOS, Windows, Linux) wrapping CLIProxyAPI with a native GUI. Connects Claude, ChatGPT, Gemini, GitHub Copilot, Qwen, iFlow, and custom OpenAI-compatible endpoints with usage analytics, request monitoring, and auto-configuration for popular coding tools - no API keys needed.
 
 > [!NOTE]  
 > If you developed a project based on CLIProxyAPI, please open a PR to add it to this list.
