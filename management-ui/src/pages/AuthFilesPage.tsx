@@ -31,6 +31,7 @@ import {
   QUOTA_PROVIDER_TYPES,
   clampCardPageSize,
   getAuthFileIcon,
+  getAuthFileStatusMessage,
   getTypeColor,
   getTypeLabel,
   hasAuthFileStatusMessage,
@@ -75,6 +76,13 @@ const BATCH_BAR_HIDDEN_TRANSFORM = 'translateX(-50%) translateY(56px)';
 const DEFAULT_REGULAR_PAGE_SIZE = 9;
 const DEFAULT_COMPACT_PAGE_SIZE = 12;
 const FILL_FIRST_ROUTE_REFRESH_INTERVAL_MS = 15_000;
+const FILL_FIRST_BLOCKING_STATUS_PATTERNS = [
+  'usage_limit_reached',
+  'usage limit has been reached',
+  'selected model is at capacity',
+  'model is at capacity. please try a different model',
+  'quota exhausted',
+] as const;
 
 const escapeWildcardSearchSegment = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -114,6 +122,105 @@ const parseDateValue = (value: unknown): number | null => {
   return null;
 };
 
+const parseRetryDelaySeconds = (value: unknown): number | null => {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : null;
+  }
+
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const statusMessageSuggestsFillFirstBlock = (value: string): boolean => {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+  return FILL_FIRST_BLOCKING_STATUS_PATTERNS.some((pattern) => normalized.includes(pattern));
+};
+
+const parseFillFirstBlockUntilFromStatusMessage = (value: string, now: number): number | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  let payload: unknown;
+  try {
+    payload = JSON.parse(trimmed);
+  } catch {
+    return null;
+  }
+
+  if (!payload || typeof payload !== 'object') return null;
+
+  const record =
+    'error' in payload && payload.error && typeof payload.error === 'object'
+      ? (payload.error as Record<string, unknown>)
+      : (payload as Record<string, unknown>);
+
+  const fingerprint = [
+    String(record.type ?? '').trim(),
+    String(record.code ?? '').trim(),
+    String(record.message ?? '').trim(),
+    trimmed,
+  ]
+    .join(' ')
+    .trim();
+
+  if (!statusMessageSuggestsFillFirstBlock(fingerprint)) return null;
+
+  const absoluteRetryAt = parseDateValue(
+    record.resets_at ??
+      record.resetsAt ??
+      record.reset_at ??
+      record.resetAt ??
+      record.next_retry_after ??
+      record.nextRetryAfter
+  );
+  if (absoluteRetryAt !== null && absoluteRetryAt > now) {
+    return absoluteRetryAt;
+  }
+
+  const retryDelaySecondsCandidates = [
+    record.resets_in_seconds,
+    record.resetsInSeconds,
+    record.reset_seconds,
+    record.resetSeconds,
+    record.retry_after,
+    record.retryAfter,
+    record.retry_after_seconds,
+    record.retryAfterSeconds,
+  ];
+
+  for (const candidate of retryDelaySecondsCandidates) {
+    const retryDelaySeconds = parseRetryDelaySeconds(candidate);
+    if (retryDelaySeconds !== null) {
+      return now + retryDelaySeconds * 1000;
+    }
+  }
+
+  return null;
+};
+
+const fillFirstBlockUntil = (file: AuthFileItem, now: number): number | null => {
+  const nextRetryAt = parseDateValue(file['next_retry_after'] ?? file.nextRetryAfter);
+  if (nextRetryAt !== null && nextRetryAt > now) {
+    return nextRetryAt;
+  }
+
+  const statusMessage = getAuthFileStatusMessage(file);
+  const retryAtFromStatus = parseFillFirstBlockUntilFromStatusMessage(statusMessage, now);
+  if (retryAtFromStatus !== null && retryAtFromStatus > now) {
+    return retryAtFromStatus;
+  }
+
+  if (file.unavailable === true && statusMessageSuggestsFillFirstBlock(statusMessage)) {
+    return now;
+  }
+
+  return null;
+};
+
 const isAvailableForFillFirst = (file: AuthFileItem, now: number): boolean => {
   if (isRuntimeOnlyAuthFile(file)) return false;
   if (file.disabled) return false;
@@ -121,8 +228,7 @@ const isAvailableForFillFirst = (file: AuthFileItem, now: number): boolean => {
   const status = String(file.status ?? '').trim().toLowerCase();
   if (status === 'disabled') return false;
 
-  const nextRetryAt = parseDateValue(file['next_retry_after'] ?? file.nextRetryAfter);
-  if (file.unavailable === true && nextRetryAt !== null && nextRetryAt > now) {
+  if (fillFirstBlockUntil(file, now) !== null) {
     return false;
   }
 
