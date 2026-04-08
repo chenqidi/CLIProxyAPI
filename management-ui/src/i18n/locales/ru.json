@@ -471,6 +471,8 @@
     "file_modified": "Изменён",
     "health_status_label": "Состояние",
     "health_status_healthy": "Нормально",
+    "current_routing_badge": "Используется сейчас",
+    "current_routing_hint_fill_first": "При стратегии fill-first именно этот файл учётных данных будет выбран по умолчанию в первую очередь.",
     "health_status_warning": "Предупреждение",
     "health_status_disabled": "Отключено",
     "health_status_unknown": "Неизвестно",

@@ -65,7 +65,7 @@ import {
   writePersistedAuthFilesCompactMode,
   type AuthFilesSortMode,
 } from '@/features/authFiles/uiState';
-import { useAuthStore, useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
+import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import styles from './AuthFilesPage.module.scss';
 
 const easePower3Out = (progress: number) => 1 - (1 - progress) ** 4;
@@ -74,6 +74,7 @@ const BATCH_BAR_BASE_TRANSFORM = 'translateX(-50%)';
 const BATCH_BAR_HIDDEN_TRANSFORM = 'translateX(-50%) translateY(56px)';
 const DEFAULT_REGULAR_PAGE_SIZE = 9;
 const DEFAULT_COMPACT_PAGE_SIZE = 12;
+const FILL_FIRST_ROUTE_REFRESH_INTERVAL_MS = 15_000;
 
 const escapeWildcardSearchSegment = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -84,10 +85,73 @@ const buildWildcardSearch = (value: string): RegExp | null => {
   return new RegExp(pattern, 'i');
 };
 
+const normalizeRoutingStrategy = (value: string | null | undefined): 'fill-first' | 'round-robin' => {
+  const normalized = value?.trim().toLowerCase() || '';
+  if (normalized === 'fill-first' || normalized === 'fillfirst' || normalized === 'ff') {
+    return 'fill-first';
+  }
+  return 'round-robin';
+};
+
+const parseDateValue = (value: unknown): number | null => {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value < 1e12 ? value * 1000 : value;
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    const asNumber = Number(trimmed);
+    if (Number.isFinite(asNumber)) {
+      return asNumber < 1e12 ? asNumber * 1000 : asNumber;
+    }
+
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? null : parsed;
+  }
+
+  return null;
+};
+
+const isAvailableForFillFirst = (file: AuthFileItem, now: number): boolean => {
+  if (isRuntimeOnlyAuthFile(file)) return false;
+  if (file.disabled) return false;
+
+  const status = String(file.status ?? '').trim().toLowerCase();
+  if (status === 'disabled') return false;
+
+  const nextRetryAt = parseDateValue(file['next_retry_after'] ?? file.nextRetryAfter);
+  if (file.unavailable === true && nextRetryAt !== null && nextRetryAt > now) {
+    return false;
+  }
+
+  return true;
+};
+
+const resolveRoutingIdentity = (file: AuthFileItem): string =>
+  String(file.id ?? file.name ?? '')
+    .trim()
+    .toLowerCase();
+
+const compareFillFirstCandidates = (left: AuthFileItem, right: AuthFileItem): number => {
+  const leftPriority = parsePriorityValue(left.priority ?? left['priority']) ?? 0;
+  const rightPriority = parsePriorityValue(right.priority ?? right['priority']) ?? 0;
+  if (leftPriority !== rightPriority) return rightPriority - leftPriority;
+
+  const leftIdentity = resolveRoutingIdentity(left);
+  const rightIdentity = resolveRoutingIdentity(right);
+  const identityCompare = leftIdentity.localeCompare(rightIdentity);
+  if (identityCompare !== 0) return identityCompare;
+
+  return left.name.localeCompare(right.name);
+};
+
 export function AuthFilesPage() {
   const { t } = useTranslation();
   const showNotification = useNotificationStore((state) => state.showNotification);
   const connectionStatus = useAuthStore((state) => state.connectionStatus);
+  const routingStrategy = useConfigStore((state) => state.config?.routingStrategy);
   const resolvedTheme: ResolvedTheme = useThemeStore((state) => state.resolvedTheme);
   const pageTransitionLayer = usePageTransitionLayer();
   const isCurrentLayer = pageTransitionLayer ? pageTransitionLayer.status === 'current' : true;
@@ -196,6 +260,8 @@ export function AuthFilesPage() {
   )
     ? (normalizedFilter as QuotaProviderType)
     : null;
+  const normalizedRoutingStrategy = normalizeRoutingStrategy(routingStrategy);
+  const fillFirstEnabled = normalizedRoutingStrategy === 'fill-first';
   const pageSize = compactMode ? pageSizeByMode.compact : pageSizeByMode.regular;
 
   useEffect(() => {
@@ -355,6 +421,13 @@ export function AuthFilesPage() {
     isCurrentLayer ? 240_000 : null
   );
 
+  useInterval(
+    () => {
+      void loadFiles().catch(() => {});
+    },
+    isCurrentLayer && fillFirstEnabled ? FILL_FIRST_ROUTE_REFRESH_INTERVAL_MS : null
+  );
+
   const existingTypes = useMemo(() => {
     const types = new Set<string>(['all']);
     files.forEach((file) => {
@@ -429,6 +502,36 @@ export function AuthFilesPage() {
     }
     return copy;
   }, [filtered, sortMode]);
+
+  const currentRoutedFileNames = useMemo(() => {
+    if (!fillFirstEnabled) return new Set<string>();
+
+    const candidatesByProvider = new Map<string, AuthFileItem[]>();
+    const now = Date.now();
+
+    files.forEach((file) => {
+      const providerKey = normalizeProviderKey(String(file.provider ?? file.type ?? ''));
+      if (!providerKey) return;
+      if (!isAvailableForFillFirst(file, now)) return;
+
+      const bucket = candidatesByProvider.get(providerKey);
+      if (bucket) {
+        bucket.push(file);
+      } else {
+        candidatesByProvider.set(providerKey, [file]);
+      }
+    });
+
+    const current = new Set<string>();
+    candidatesByProvider.forEach((providerFiles) => {
+      const winner = [...providerFiles].sort(compareFillFirstCandidates)[0];
+      if (winner?.name) {
+        current.add(winner.name);
+      }
+    });
+
+    return current;
+  }, [files, fillFirstEnabled]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -954,6 +1057,7 @@ export function AuthFilesPage() {
                     file={file}
                     compact={compactMode}
                     selected={selectedFiles.has(file.name)}
+                    isCurrentRouted={currentRoutedFileNames.has(file.name)}
                     resolvedTheme={resolvedTheme}
                     disableControls={disableControls}
                     deleting={deleting}

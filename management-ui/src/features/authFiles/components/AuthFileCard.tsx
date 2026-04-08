@@ -38,6 +38,7 @@ export type AuthFileCardProps = {
   file: AuthFileItem;
   compact: boolean;
   selected: boolean;
+  isCurrentRouted: boolean;
   resolvedTheme: ResolvedTheme;
   disableControls: boolean;
   deleting: string | null;
@@ -65,6 +66,7 @@ export function AuthFileCard(props: AuthFileCardProps) {
     file,
     compact,
     selected,
+    isCurrentRouted,
     resolvedTheme,
     disableControls,
     deleting,
@@ -180,6 +182,14 @@ export function AuthFileCard(props: AuthFileCardProps) {
                   {typeLabel}
                 </span>
                 <span className={`${styles.stateBadge} ${stateBadgeClass}`}>{stateLabel}</span>
+                {isCurrentRouted && (
+                  <span
+                    className={styles.currentRouteBadge}
+                    title={t('auth_files.current_routing_hint_fill_first')}
+                  >
+                    {t('auth_files.current_routing_badge')}
+                  </span>
+                )}
               </div>
               <span className={styles.fileName} title={file.name}>
                 {file.name}

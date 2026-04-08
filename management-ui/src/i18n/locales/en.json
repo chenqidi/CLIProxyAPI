@@ -471,6 +471,8 @@
     "file_modified": "Modified",
     "health_status_label": "Health",
     "health_status_healthy": "Healthy",
+    "current_routing_badge": "Currently routed",
+    "current_routing_hint_fill_first": "Under the fill-first routing strategy, this credential is the default file that requests will hit first.",
     "health_status_warning": "Warning",
     "health_status_disabled": "Disabled",
     "health_status_unknown": "Unknown",
