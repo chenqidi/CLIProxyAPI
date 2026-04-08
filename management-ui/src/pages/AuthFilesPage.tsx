@@ -423,7 +423,7 @@ export function AuthFilesPage() {
 
   useInterval(
     () => {
-      void loadFiles().catch(() => {});
+      void loadFiles({ silent: true }).catch(() => {});
     },
     isCurrentLayer && fillFirstEnabled ? FILL_FIRST_ROUTE_REFRESH_INTERVAL_MS : null
   );
