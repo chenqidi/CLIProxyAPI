@@ -1,9 +1,14 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { USAGE_STATS_STALE_TIME_MS, useNotificationStore, useUsageStatsStore } from '@/stores';
+import { USAGE_STATS_STALE_TIME_MS, useConfigStore, useNotificationStore, useUsageStatsStore } from '@/stores';
 import { usageApi } from '@/services/api/usage';
 import { downloadBlob } from '@/utils/download';
-import { loadModelPrices, saveModelPrices, type ModelPrice } from '@/utils/usage';
+import {
+  buildModelPriceOverrides,
+  mergeModelPricesWithDefaults,
+  normalizeUsagePriceSelectedModel,
+  type ModelPrice
+} from '@/utils/usage';
 
 export interface UsagePayload {
   total_requests?: number;
@@ -20,7 +25,12 @@ export interface UseUsageDataReturn {
   error: string;
   lastRefreshedAt: Date | null;
   modelPrices: Record<string, ModelPrice>;
-  setModelPrices: (prices: Record<string, ModelPrice>) => void;
+  selectedPriceModel: string;
+  setSelectedPriceModel: (model: string) => Promise<boolean>;
+  setModelPrices: (
+    prices: Record<string, ModelPrice>,
+    options?: { action?: 'save' | 'delete' }
+  ) => Promise<boolean>;
   loadUsage: () => Promise<void>;
   handleExport: () => Promise<void>;
   handleImport: () => void;
@@ -28,6 +38,8 @@ export interface UseUsageDataReturn {
   importInputRef: React.RefObject<HTMLInputElement | null>;
   exporting: boolean;
   importing: boolean;
+  savingModelPrices: boolean;
+  savingSelectedPriceModel: boolean;
 }
 
 export function useUsageData(): UseUsageDataReturn {
@@ -38,11 +50,23 @@ export function useUsageData(): UseUsageDataReturn {
   const storeError = useUsageStatsStore((state) => state.error);
   const lastRefreshedAtTs = useUsageStatsStore((state) => state.lastRefreshedAt);
   const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
+  const configModelPrices = useConfigStore((state) => state.config?.usageModelPrices);
+  const configSelectedPriceModel = useConfigStore((state) => state.config?.usagePriceSelectedModel);
+  const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
 
-  const [modelPrices, setModelPrices] = useState<Record<string, ModelPrice>>({});
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [savingModelPrices, setSavingModelPrices] = useState(false);
+  const [savingSelectedPriceModel, setSavingSelectedPriceModel] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const modelPrices = useMemo(
+    () => mergeModelPricesWithDefaults(configModelPrices ?? {}),
+    [configModelPrices]
+  );
+  const selectedPriceModel = useMemo(
+    () => normalizeUsagePriceSelectedModel(configSelectedPriceModel),
+    [configSelectedPriceModel]
+  );
 
   const loadUsage = useCallback(async () => {
     await loadUsageStats({ force: true, staleTimeMs: USAGE_STATS_STALE_TIME_MS });
@@ -50,7 +74,6 @@ export function useUsageData(): UseUsageDataReturn {
 
   useEffect(() => {
     void loadUsageStats({ staleTimeMs: USAGE_STATS_STALE_TIME_MS }).catch(() => {});
-    setModelPrices(loadModelPrices());
   }, [loadUsageStats]);
 
   const handleExport = async () => {
@@ -129,10 +152,56 @@ export function useUsageData(): UseUsageDataReturn {
     }
   };
 
-  const handleSetModelPrices = useCallback((prices: Record<string, ModelPrice>) => {
-    setModelPrices(prices);
-    saveModelPrices(prices);
-  }, []);
+  const handleSetSelectedPriceModel = useCallback(async (model: string) => {
+    const normalized = normalizeUsagePriceSelectedModel(model);
+    if (normalized === selectedPriceModel) {
+      return true;
+    }
+
+    const previousModel = configSelectedPriceModel;
+    updateConfigValue('usage-price-selected-model', normalized);
+    setSavingSelectedPriceModel(true);
+    try {
+      await usageApi.updateSelectedModel(normalized);
+      return true;
+    } catch (err: unknown) {
+      updateConfigValue('usage-price-selected-model', previousModel);
+      const message = err instanceof Error ? err.message : '';
+      showNotification(
+        `${t('notification.update_failed')}${message ? `: ${message}` : ''}`,
+        'error'
+      );
+      return false;
+    } finally {
+      setSavingSelectedPriceModel(false);
+    }
+  }, [configSelectedPriceModel, selectedPriceModel, showNotification, t, updateConfigValue]);
+
+  const handleSetModelPrices = useCallback(async (
+    prices: Record<string, ModelPrice>,
+    options?: { action?: 'save' | 'delete' }
+  ) => {
+    const overrides = buildModelPriceOverrides(prices);
+    setSavingModelPrices(true);
+    try {
+      await usageApi.updateModelPrices(overrides);
+      updateConfigValue('usage-model-prices', overrides);
+      showNotification(
+        t(options?.action === 'delete' ? 'usage_stats.model_price_deleted' : 'usage_stats.model_price_saved'),
+        'success'
+      );
+      return true;
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      showNotification(
+        `${t('notification.update_failed')}${message ? `: ${message}` : ''}`,
+        'error'
+      );
+      return false;
+    } finally {
+      setSavingModelPrices(false);
+    }
+  }, [showNotification, t, updateConfigValue]);
 
   const usage = usageSnapshot as UsagePayload | null;
   const error = storeError || '';
@@ -144,6 +213,8 @@ export function useUsageData(): UseUsageDataReturn {
     error,
     lastRefreshedAt,
     modelPrices,
+    selectedPriceModel,
+    setSelectedPriceModel: handleSetSelectedPriceModel,
     setModelPrices: handleSetModelPrices,
     loadUsage,
     handleExport,
@@ -151,6 +222,8 @@ export function useUsageData(): UseUsageDataReturn {
     handleImportChange,
     importInputRef,
     exporting,
-    importing
+    importing,
+    savingModelPrices,
+    savingSelectedPriceModel
   };
 }

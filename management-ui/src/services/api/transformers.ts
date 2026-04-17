@@ -27,6 +27,43 @@ const normalizeBoolean = (value: unknown): boolean | undefined => {
   return Boolean(value);
 };
 
+const normalizeOptionalString = (value: unknown): string | undefined => {
+  if (value === undefined || value === null) return undefined;
+  const trimmed = String(value).trim();
+  return trimmed || undefined;
+};
+
+const normalizeUsageModelPrices = (
+  value: unknown
+): Record<string, { prompt: number; completion: number; cache: number }> | undefined => {
+  if (!isRecord(value)) return undefined;
+
+  const entries = Object.entries(value).reduce<Record<string, { prompt: number; completion: number; cache: number }>>(
+    (acc, [model, rawPrice]) => {
+      const key = model.trim();
+      if (!key || !isRecord(rawPrice)) return acc;
+
+      const promptRaw = Number(rawPrice.prompt);
+      const completionRaw = Number(rawPrice.completion);
+      const cacheRaw = Number(rawPrice.cache);
+
+      if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
+        return acc;
+      }
+
+      const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
+      const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
+      const cache = Number.isFinite(cacheRaw) && cacheRaw >= 0 ? cacheRaw : prompt;
+
+      acc[key] = { prompt, completion, cache };
+      return acc;
+    },
+    {}
+  );
+
+  return Object.keys(entries).length > 0 ? entries : undefined;
+};
+
 const normalizeModelAliases = (models: unknown): ModelAlias[] => {
   if (!Array.isArray(models)) return [];
   return models
@@ -372,6 +409,12 @@ export const normalizeConfigResponse = (raw: unknown): Config => {
 
   config.usageStatisticsEnabled = normalizeBoolean(
     raw['usage-statistics-enabled'] ?? raw.usageStatisticsEnabled
+  );
+  config.usageModelPrices = normalizeUsageModelPrices(
+    raw['usage-model-prices'] ?? raw.usageModelPrices
+  );
+  config.usagePriceSelectedModel = normalizeOptionalString(
+    raw['usage-price-selected-model'] ?? raw.usagePriceSelectedModel
   );
   config.requestLog = normalizeBoolean(raw['request-log'] ?? raw.requestLog);
   config.loggingToFile = normalizeBoolean(raw['logging-to-file'] ?? raw.loggingToFile);

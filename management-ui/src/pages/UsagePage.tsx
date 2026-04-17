@@ -37,6 +37,7 @@ import {
   getModelNamesFromUsage,
   getApiStats,
   getModelStats,
+  hasAnyResolvableModelPrice,
   filterUsageByTimeRange,
   type UsageTimeRange
 } from '@/utils/usage';
@@ -129,6 +130,8 @@ export function UsagePage() {
     error,
     lastRefreshedAt,
     modelPrices,
+    selectedPriceModel,
+    setSelectedPriceModel,
     setModelPrices,
     loadUsage,
     handleExport,
@@ -136,7 +139,9 @@ export function UsagePage() {
     handleImportChange,
     importInputRef,
     exporting,
-    importing
+    importing,
+    savingModelPrices,
+    savingSelectedPriceModel
   } = useUsageData();
 
   useHeaderRefresh(loadUsage);
@@ -220,7 +225,10 @@ export function UsagePage() {
     () => getModelStats(filteredUsage, modelPrices),
     [filteredUsage, modelPrices]
   );
-  const hasPrices = Object.keys(modelPrices).length > 0;
+  const hasPrices = useMemo(
+    () => hasAnyResolvableModelPrice(filteredUsage, modelPrices),
+    [filteredUsage, modelPrices]
+  );
 
   return (
     <div className={styles.container}>
@@ -389,8 +397,11 @@ export function UsagePage() {
       {/* Price Settings */}
       <PriceSettingsCard
         modelNames={modelNames}
+        selectedModel={selectedPriceModel}
         modelPrices={modelPrices}
+        onSelectedModelChange={setSelectedPriceModel}
         onPricesChange={setModelPrices}
+        saving={savingModelPrices || savingSelectedPriceModel}
       />
     </div>
   );

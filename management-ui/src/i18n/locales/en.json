@@ -1016,6 +1016,7 @@
     "model_price_empty": "No model prices set",
     "model_price_model": "Model",
     "model_price_saved": "Model price saved",
+    "model_price_deleted": "Model price deleted",
     "model_price_model_required": "Please choose a model to set pricing",
     "cost_trend": "Cost Overview",
     "cost_axis_label": "Cost ($)",

@@ -9,6 +9,7 @@ import {
   calculateCost,
   collectUsageDetails,
   extractTotalTokens,
+  hasAnyResolvableModelPrice,
   type ModelPrice
 } from '@/utils/usage';
 import { sparklineOptions } from '@/utils/usage/chartConfig';
@@ -45,7 +46,7 @@ export interface StatCardsProps {
 export function StatCards({ usage, loading, modelPrices, nowMs, sparklines }: StatCardsProps) {
   const { t } = useTranslation();
 
-  const hasPrices = Object.keys(modelPrices).length > 0;
+  const hasPrices = useMemo(() => hasAnyResolvableModelPrice(usage, modelPrices), [usage, modelPrices]);
 
   const { tokenBreakdown, rateStats, totalCost } = useMemo(() => {
     const empty = {

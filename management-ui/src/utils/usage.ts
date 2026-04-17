@@ -72,16 +72,118 @@ export interface ApiStats {
 export type UsageTimeRange = '7h' | '24h' | '7d' | 'all';
 
 const TOKENS_PER_PRICE_UNIT = 1_000_000;
-const MODEL_PRICE_STORAGE_KEY = 'cli-proxy-model-prices-v2';
 const USAGE_ENDPOINT_METHOD_REGEX = /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+(\S+)/i;
+const MODEL_PRICE_SNAPSHOT_SUFFIX_REGEX = /-\d{4}-\d{2}-\d{2}$/;
+export const DEFAULT_USAGE_PRICE_SELECTED_MODEL = 'gpt-5.4';
 const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
   '7h': 7 * 60 * 60 * 1000,
   '24h': 24 * 60 * 60 * 1000,
   '7d': 7 * 24 * 60 * 60 * 1000
 };
 
+// Source: https://developers.openai.com/api/docs/pricing
+// We currently only keep built-in default prices for GPT-5.4 and GPT-5.3 Codex.
+// GPT-5.4 uses the standard short-context tier instead of the long-context tier.
+const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
+  'gpt-5.4': { prompt: 2.5, completion: 15, cache: 0.25 },
+  'gpt-5.3-codex': { prompt: 1.75, completion: 14, cache: 0.175 }
+};
+
+const MODEL_PRICE_ALIAS_FALLBACKS: Record<string, string> = {
+  'gpt-5.3-chat': 'gpt-5.3-chat-latest'
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const sanitizeModelPriceNumber = (value: number, fallback = 0) =>
+  Number.isFinite(value) && value >= 0 ? value : fallback;
+
+export const normalizeUsagePriceSelectedModel = (value: unknown): string => {
+  const trimmed = typeof value === 'string' ? value.trim() : '';
+  return trimmed || DEFAULT_USAGE_PRICE_SELECTED_MODEL;
+};
+
+export const normalizeModelPrices = (value: unknown): Record<string, ModelPrice> => {
+  if (!isRecord(value)) {
+    return {};
+  }
+
+  const normalized: Record<string, ModelPrice> = {};
+  Object.entries(value).forEach(([model, price]: [string, unknown]) => {
+    const normalizedModel = model.trim();
+    if (!normalizedModel) return;
+
+    const priceRecord = isRecord(price) ? price : null;
+    const promptRaw = Number(priceRecord?.prompt);
+    const completionRaw = Number(priceRecord?.completion);
+    const cacheRaw = Number(priceRecord?.cache);
+
+    if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
+      return;
+    }
+
+    const prompt = sanitizeModelPriceNumber(promptRaw, 0);
+    const completion = sanitizeModelPriceNumber(completionRaw, 0);
+    const cache = sanitizeModelPriceNumber(cacheRaw, prompt);
+
+    normalized[normalizedModel] = {
+      prompt,
+      completion,
+      cache
+    };
+  });
+
+  return normalized;
+};
+
+const getModelPriceLookupKeys = (modelName: string): string[] => {
+  const trimmed = modelName.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const candidates = new Set<string>();
+  const addCandidate = (candidate: string) => {
+    if (!candidate) return;
+    candidates.add(candidate);
+    const alias = MODEL_PRICE_ALIAS_FALLBACKS[candidate];
+    if (alias) {
+      candidates.add(alias);
+    }
+  };
+
+  addCandidate(trimmed);
+
+  const lowercase = trimmed.toLowerCase();
+  if (lowercase !== trimmed) {
+    addCandidate(lowercase);
+  }
+
+  const snapshotBase = lowercase.replace(MODEL_PRICE_SNAPSHOT_SUFFIX_REGEX, '');
+  if (snapshotBase !== lowercase) {
+    addCandidate(snapshotBase);
+  }
+
+  return Array.from(candidates);
+};
+
+const cloneModelPrices = (prices: Record<string, ModelPrice>): Record<string, ModelPrice> =>
+  Object.fromEntries(
+    Object.entries(prices).map(([model, price]) => [
+      model,
+      {
+        prompt: price.prompt,
+        completion: price.completion,
+        cache: price.cache
+      }
+    ])
+  );
+
+const areModelPricesEqual = (left: ModelPrice, right: ModelPrice) =>
+  left.prompt === right.prompt &&
+  left.completion === right.completion &&
+  left.cache === right.cache;
 
 const getApisRecord = (usageData: unknown): Record<string, unknown> | null => {
   const usageRecord = isRecord(usageData) ? usageData : null;
@@ -691,12 +793,85 @@ export function getModelNamesFromUsage(usageData: unknown): string[] {
   return Array.from(names).sort((a, b) => a.localeCompare(b));
 }
 
+export function getDefaultModelPrices(): Record<string, ModelPrice> {
+  return cloneModelPrices(DEFAULT_MODEL_PRICES);
+}
+
+export function mergeModelPricesWithDefaults(
+  overrides?: Record<string, ModelPrice>
+): Record<string, ModelPrice> {
+  return {
+    ...getDefaultModelPrices(),
+    ...normalizeModelPrices(overrides ?? {})
+  };
+}
+
+export function buildModelPriceOverrides(
+  effectivePrices: Record<string, ModelPrice>
+): Record<string, ModelPrice> {
+  const normalized = normalizeModelPrices(effectivePrices);
+  const overrides: Record<string, ModelPrice> = {};
+
+  Object.entries(normalized).forEach(([model, price]) => {
+    const defaultPrice = DEFAULT_MODEL_PRICES[model];
+    if (!defaultPrice || !areModelPricesEqual(defaultPrice, price)) {
+      overrides[model] = price;
+    }
+  });
+
+  return overrides;
+}
+
+export function getWritableModelPriceKey(
+  modelPrices: Record<string, ModelPrice>,
+  modelName: string
+): string {
+  const trimmed = modelName.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  const lookupKeys = getModelPriceLookupKeys(trimmed);
+  for (const key of lookupKeys) {
+    if (modelPrices[key] || DEFAULT_MODEL_PRICES[key]) {
+      return key;
+    }
+  }
+
+  return trimmed;
+}
+
+export function resolveModelPrice(
+  modelPrices: Record<string, ModelPrice>,
+  modelName: string
+): ModelPrice | null {
+  const lookupKeys = getModelPriceLookupKeys(modelName);
+  for (const key of lookupKeys) {
+    const price = modelPrices[key];
+    if (price) {
+      return price;
+    }
+  }
+  return null;
+}
+
+export function hasAnyResolvableModelPrice(
+  usageData: unknown,
+  modelPrices: Record<string, ModelPrice>
+): boolean {
+  if (!Object.keys(modelPrices).length) {
+    return false;
+  }
+
+  return getModelNamesFromUsage(usageData).some((modelName) => resolveModelPrice(modelPrices, modelName) !== null);
+}
+
 /**
  * 计算成本数据
  */
 export function calculateCost(detail: UsageDetail, modelPrices: Record<string, ModelPrice>): number {
   const modelName = detail.__modelName || '';
-  const price = modelPrices[modelName];
+  const price = resolveModelPrice(modelPrices, modelName);
   if (!price) {
     return 0;
   }
@@ -733,69 +908,6 @@ export function calculateTotalCost(usageData: unknown, modelPrices: Record<strin
 }
 
 /**
- * 从 localStorage 加载模型价格
- */
-export function loadModelPrices(): Record<string, ModelPrice> {
-  try {
-    if (typeof localStorage === 'undefined') {
-      return {};
-    }
-    const raw = localStorage.getItem(MODEL_PRICE_STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-    const parsed: unknown = JSON.parse(raw);
-    if (!isRecord(parsed)) {
-      return {};
-    }
-    const normalized: Record<string, ModelPrice> = {};
-    Object.entries(parsed).forEach(([model, price]: [string, unknown]) => {
-      if (!model) return;
-      const priceRecord = isRecord(price) ? price : null;
-      const promptRaw = Number(priceRecord?.prompt);
-      const completionRaw = Number(priceRecord?.completion);
-      const cacheRaw = Number(priceRecord?.cache);
-
-      if (!Number.isFinite(promptRaw) && !Number.isFinite(completionRaw) && !Number.isFinite(cacheRaw)) {
-        return;
-      }
-
-      const prompt = Number.isFinite(promptRaw) && promptRaw >= 0 ? promptRaw : 0;
-      const completion = Number.isFinite(completionRaw) && completionRaw >= 0 ? completionRaw : 0;
-      const cache =
-        Number.isFinite(cacheRaw) && cacheRaw >= 0
-          ? cacheRaw
-          : Number.isFinite(promptRaw) && promptRaw >= 0
-            ? promptRaw
-            : prompt;
-
-      normalized[model] = {
-        prompt,
-        completion,
-        cache
-      };
-    });
-    return normalized;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * 保存模型价格到 localStorage
- */
-export function saveModelPrices(prices: Record<string, ModelPrice>): void {
-  try {
-    if (typeof localStorage === 'undefined') {
-      return;
-    }
-    localStorage.setItem(MODEL_PRICE_STORAGE_KEY, JSON.stringify(prices));
-  } catch {
-    console.warn('保存模型价格失败');
-  }
-}
-
-/**
  * 获取 API 统计数据
  */
 export function getApiStats(usageData: unknown, modelPrices: Record<string, ModelPrice>): ApiStats[] {
@@ -824,7 +936,7 @@ export function getApiStats(usageData: unknown, modelPrices: Record<string, Mode
         failureCount += Number(modelData.failure_count) || 0;
       }
 
-      const price = modelPrices[modelName];
+      const price = resolveModelPrice(modelPrices, modelName);
       if (details.length > 0 && (!hasExplicitCounts || price)) {
         details.forEach((detail) => {
           const detailRecord = isRecord(detail) ? detail : null;
@@ -908,7 +1020,7 @@ export function getModelStats(usageData: unknown, modelPrices: Record<string, Mo
 
       const details = Array.isArray(modelData.details) ? modelData.details : [];
 
-      const price = modelPrices[modelName];
+      const price = resolveModelPrice(modelPrices, modelName);
 
       const hasExplicitCounts =
         typeof modelData.success_count === 'number' || typeof modelData.failure_count === 'number';

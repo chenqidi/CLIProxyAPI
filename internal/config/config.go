@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"syscall"
@@ -22,6 +23,7 @@ import (
 const (
 	DefaultPanelGitHubRepository = "https://github.com/router-for-me/CLIProxyAPI/tree/main/management-ui"
 	DefaultPprofAddr             = "127.0.0.1:8316"
+	DefaultUsagePriceModel       = "gpt-5.4"
 )
 
 // Config represents the application's configuration, loaded from a YAML file.
@@ -64,6 +66,15 @@ type Config struct {
 
 	// UsageStatisticsEnabled toggles in-memory usage aggregation; when false, usage data is discarded.
 	UsageStatisticsEnabled bool `yaml:"usage-statistics-enabled" json:"usage-statistics-enabled"`
+
+	// UsageModelPrices stores server-side overrides for usage cost calculation.
+	// Built-in default prices remain available in the management UI; entries here only
+	// override those defaults or add custom model pricing.
+	UsageModelPrices map[string]UsageModelPrice `yaml:"usage-model-prices,omitempty" json:"usage-model-prices,omitempty"`
+
+	// UsagePriceSelectedModel stores the default model selected in the management UI
+	// usage pricing form. When unset, GPT-5.4 is used.
+	UsagePriceSelectedModel string `yaml:"usage-price-selected-model,omitempty" json:"usage-price-selected-model,omitempty"`
 
 	// DisableCooling disables quota cooldown scheduling when true.
 	DisableCooling bool `yaml:"disable-cooling" json:"disable-cooling"`
@@ -205,6 +216,14 @@ type RoutingConfig struct {
 	// Strategy selects the credential selection strategy.
 	// Supported values: "round-robin" (default), "fill-first".
 	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+}
+
+// UsageModelPrice defines the token pricing (USD / 1M tokens) used by the
+// management UI usage statistics cost calculator.
+type UsageModelPrice struct {
+	Prompt     float64 `yaml:"prompt" json:"prompt"`
+	Completion float64 `yaml:"completion" json:"completion"`
+	Cache      float64 `yaml:"cache" json:"cache"`
 }
 
 // OAuthModelAlias defines a model ID alias for a specific channel.
@@ -665,6 +684,12 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Normalize OAuth provider model exclusion map.
 	cfg.OAuthExcludedModels = NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)
 
+	// Normalize usage statistics model price overrides.
+	cfg.UsageModelPrices = NormalizeUsageModelPrices(cfg.UsageModelPrices)
+
+	// Normalize usage pricing model selector.
+	cfg.UsagePriceSelectedModel = NormalizeUsagePriceSelectedModel(cfg.UsagePriceSelectedModel)
+
 	// Normalize global OAuth model name aliases.
 	cfg.SanitizeOAuthModelAlias()
 
@@ -976,6 +1001,50 @@ func NormalizeOAuthExcludedModels(entries map[string][]string) map[string][]stri
 		return nil
 	}
 	return out
+}
+
+func sanitizeUsageModelPriceValue(value float64, fallback float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 {
+		return fallback
+	}
+	return value
+}
+
+// NormalizeUsageModelPrices trims model keys, drops empty entries, and clamps
+// invalid numeric values. Cache falls back to prompt pricing when omitted or invalid.
+func NormalizeUsageModelPrices(entries map[string]UsageModelPrice) map[string]UsageModelPrice {
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make(map[string]UsageModelPrice, len(entries))
+	for model, price := range entries {
+		key := strings.TrimSpace(model)
+		if key == "" {
+			continue
+		}
+		prompt := sanitizeUsageModelPriceValue(price.Prompt, 0)
+		completion := sanitizeUsageModelPriceValue(price.Completion, 0)
+		cache := sanitizeUsageModelPriceValue(price.Cache, prompt)
+		out[key] = UsageModelPrice{
+			Prompt:     prompt,
+			Completion: completion,
+			Cache:      cache,
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// NormalizeUsagePriceSelectedModel trims the configured selection and falls back
+// to the built-in default model when the value is empty.
+func NormalizeUsagePriceSelectedModel(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return DefaultUsagePriceModel
+	}
+	return trimmed
 }
 
 // hashSecret hashes the given secret using bcrypt.

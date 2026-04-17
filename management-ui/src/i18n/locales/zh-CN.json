@@ -1016,6 +1016,7 @@
     "model_price_empty": "暂未设置任何模型价格",
     "model_price_model": "模型",
     "model_price_saved": "模型价格已保存",
+    "model_price_deleted": "模型价格已删除",
     "model_price_model_required": "请选择要设置价格的模型",
     "cost_trend": "花费统计",
     "cost_axis_label": "花费 ($)",

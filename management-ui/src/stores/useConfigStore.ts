@@ -39,6 +39,8 @@ const SECTION_KEYS: RawConfigSection[] = [
   'request-retry',
   'quota-exceeded',
   'usage-statistics-enabled',
+  'usage-model-prices',
+  'usage-price-selected-model',
   'request-log',
   'logging-to-file',
   'logs-max-total-size-mb',
@@ -68,6 +70,10 @@ const extractSectionValue = (config: Config | null, section?: RawConfigSection) 
       return config.quotaExceeded;
     case 'usage-statistics-enabled':
       return config.usageStatisticsEnabled;
+    case 'usage-model-prices':
+      return config.usageModelPrices;
+    case 'usage-price-selected-model':
+      return config.usagePriceSelectedModel;
     case 'request-log':
       return config.requestLog;
     case 'logging-to-file':
@@ -204,6 +210,12 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
           break;
         case 'usage-statistics-enabled':
           nextConfig.usageStatisticsEnabled = value as Config['usageStatisticsEnabled'];
+          break;
+        case 'usage-model-prices':
+          nextConfig.usageModelPrices = value as Config['usageModelPrices'];
+          break;
+        case 'usage-price-selected-model':
+          nextConfig.usagePriceSelectedModel = value as Config['usagePriceSelectedModel'];
           break;
         case 'request-log':
           nextConfig.requestLog = value as Config['requestLog'];

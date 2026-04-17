@@ -8,6 +8,7 @@ import {
   buildHourlyCostSeries,
   buildDailyCostSeries,
   formatUsd,
+  hasAnyResolvableModelPrice,
   type ModelPrice
 } from '@/utils/usage';
 import { buildChartOptions, getHourChartMinWidth } from '@/utils/usage/chartConfig';
@@ -47,7 +48,7 @@ export function CostTrendChart({
 }: CostTrendChartProps) {
   const { t } = useTranslation();
   const [period, setPeriod] = useState<'hour' | 'day'>('hour');
-  const hasPrices = Object.keys(modelPrices).length > 0;
+  const hasPrices = useMemo(() => hasAnyResolvableModelPrice(usage, modelPrices), [usage, modelPrices]);
 
   const { chartData, chartOptions, hasData } = useMemo(() => {
     if (!hasPrices || !usage) {

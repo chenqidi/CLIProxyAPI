@@ -11,12 +11,20 @@ export interface QuotaExceededConfig {
   switchPreviewModel?: boolean;
 }
 
+export interface UsageModelPriceConfig {
+  prompt: number;
+  completion: number;
+  cache: number;
+}
+
 export interface Config {
   debug?: boolean;
   proxyUrl?: string;
   requestRetry?: number;
   quotaExceeded?: QuotaExceededConfig;
   usageStatisticsEnabled?: boolean;
+  usageModelPrices?: Record<string, UsageModelPriceConfig>;
+  usagePriceSelectedModel?: string;
   requestLog?: boolean;
   loggingToFile?: boolean;
   logsMaxTotalSizeMb?: number;
@@ -40,6 +48,8 @@ export type RawConfigSection =
   | 'request-retry'
   | 'quota-exceeded'
   | 'usage-statistics-enabled'
+  | 'usage-model-prices'
+  | 'usage-price-selected-model'
   | 'request-log'
   | 'logging-to-file'
   | 'logs-max-total-size-mb'

@@ -1019,6 +1019,7 @@
     "model_price_empty": "Цена для моделей не задана",
     "model_price_model": "Модель",
     "model_price_saved": "Цена модели сохранена",
+    "model_price_deleted": "Цена модели удалена",
     "model_price_model_required": "Выберите модель для задания цены",
     "cost_trend": "Обзор стоимости",
     "cost_axis_label": "Стоимость ($)",

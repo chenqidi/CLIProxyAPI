@@ -517,6 +517,14 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PUT("/usage-statistics-enabled", s.mgmt.PutUsageStatisticsEnabled)
 		mgmt.PATCH("/usage-statistics-enabled", s.mgmt.PutUsageStatisticsEnabled)
 
+		mgmt.GET("/usage-model-prices", s.mgmt.GetUsageModelPrices)
+		mgmt.PUT("/usage-model-prices", s.mgmt.PutUsageModelPrices)
+		mgmt.PATCH("/usage-model-prices", s.mgmt.PutUsageModelPrices)
+
+		mgmt.GET("/usage-price-selected-model", s.mgmt.GetUsagePriceSelectedModel)
+		mgmt.PUT("/usage-price-selected-model", s.mgmt.PutUsagePriceSelectedModel)
+		mgmt.PATCH("/usage-price-selected-model", s.mgmt.PutUsagePriceSelectedModel)
+
 		mgmt.GET("/proxy-url", s.mgmt.GetProxyURL)
 		mgmt.PUT("/proxy-url", s.mgmt.PutProxyURL)
 		mgmt.PATCH("/proxy-url", s.mgmt.PutProxyURL)
