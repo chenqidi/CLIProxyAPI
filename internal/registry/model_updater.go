@@ -32,6 +32,190 @@ type modelStore struct {
 	data *staticModelsJSON
 }
 
+type modelCatalogSection struct {
+	name     string
+	provider string
+	get      func(*staticModelsJSON) []*ModelInfo
+	set      func(*staticModelsJSON, []*ModelInfo)
+}
+
+type modelCatalogFallback struct {
+	section string
+	err     error
+}
+
+var staticModelCatalogSections = []modelCatalogSection{
+	{
+		name:     "claude",
+		provider: "claude",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.Claude
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.Claude = models
+		},
+	},
+	{
+		name:     "gemini",
+		provider: "gemini",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.Gemini
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.Gemini = models
+		},
+	},
+	{
+		name:     "vertex",
+		provider: "vertex",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.Vertex
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.Vertex = models
+		},
+	},
+	{
+		name:     "gemini-cli",
+		provider: "gemini-cli",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.GeminiCLI
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.GeminiCLI = models
+		},
+	},
+	{
+		name:     "aistudio",
+		provider: "aistudio",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.AIStudio
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.AIStudio = models
+		},
+	},
+	{
+		name:     "codex-free",
+		provider: "codex",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.CodexFree
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.CodexFree = models
+		},
+	},
+	{
+		name:     "codex-team",
+		provider: "codex",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.CodexTeam
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.CodexTeam = models
+		},
+	},
+	{
+		name:     "codex-plus",
+		provider: "codex",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.CodexPlus
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.CodexPlus = models
+		},
+	},
+	{
+		name:     "codex-pro",
+		provider: "codex",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.CodexPro
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.CodexPro = models
+		},
+	},
+	{
+		name:     "qwen",
+		provider: "qwen",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.Qwen
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.Qwen = models
+		},
+	},
+	{
+		name:     "iflow",
+		provider: "iflow",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.IFlow
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.IFlow = models
+		},
+	},
+	{
+		name:     "kimi",
+		provider: "kimi",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.Kimi
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.Kimi = models
+		},
+	},
+	{
+		name:     "antigravity",
+		provider: "antigravity",
+		get: func(data *staticModelsJSON) []*ModelInfo {
+			if data == nil {
+				return nil
+			}
+			return data.Antigravity
+		},
+		set: func(data *staticModelsJSON, models []*ModelInfo) {
+			data.Antigravity = models
+		},
+	},
+}
+
 var modelsCatalogStore = &modelStore{}
 
 var updaterOnce sync.Once
@@ -142,6 +326,7 @@ func tryRefreshModels(ctx context.Context, label string) {
 // along with the URL it was fetched from. Returns (nil, "") if all fetches fail.
 func fetchModelsFromRemote(ctx context.Context) (*staticModelsJSON, string) {
 	client := &http.Client{Timeout: modelsFetchTimeout}
+	current := getModels()
 	for _, url := range modelsURLs {
 		reqCtx, cancel := context.WithTimeout(ctx, modelsFetchTimeout)
 		req, err := http.NewRequestWithContext(reqCtx, "GET", url, nil)
@@ -179,14 +364,47 @@ func fetchModelsFromRemote(ctx context.Context) (*staticModelsJSON, string) {
 			log.Warnf("models parse failed from %s: %v", url, err)
 			continue
 		}
-		if err := validateModelsCatalog(&parsed); err != nil {
+
+		merged, fallbacks, err := mergeModelsCatalogWithFallback(current, &parsed)
+		if err != nil {
 			log.Warnf("models validate failed from %s: %v", url, err)
 			continue
 		}
+		for _, fallback := range fallbacks {
+			log.Warnf("models refresh from %s: keeping current %s section: %v", url, fallback.section, fallback.err)
+		}
 
-		return &parsed, url
+		return merged, url
 	}
 	return nil, ""
+}
+
+func mergeModelsCatalogWithFallback(current, remote *staticModelsJSON) (*staticModelsJSON, []modelCatalogFallback, error) {
+	if remote == nil {
+		return nil, nil, fmt.Errorf("catalog is nil")
+	}
+
+	merged := &staticModelsJSON{}
+	fallbacks := make([]modelCatalogFallback, 0)
+	for _, section := range staticModelCatalogSections {
+		remoteModels := cloneModelInfos(section.get(remote))
+		if err := validateModelSection(section.name, remoteModels); err == nil {
+			section.set(merged, remoteModels)
+			continue
+		} else {
+			currentModels := cloneModelInfos(section.get(current))
+			if len(currentModels) == 0 {
+				return nil, nil, fmt.Errorf("%s: no fallback available after remote validation failure: %w", section.name, err)
+			}
+			section.set(merged, currentModels)
+			fallbacks = append(fallbacks, modelCatalogFallback{section: section.name, err: err})
+		}
+	}
+
+	if err := validateModelsCatalog(merged); err != nil {
+		return nil, fallbacks, err
+	}
+	return merged, fallbacks, nil
 }
 
 // detectChangedProviders compares two model catalogs and returns provider names
@@ -197,37 +415,15 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		return nil
 	}
 
-	type section struct {
-		provider string
-		oldList  []*ModelInfo
-		newList  []*ModelInfo
-	}
-
-	sections := []section{
-		{"claude", oldData.Claude, newData.Claude},
-		{"gemini", oldData.Gemini, newData.Gemini},
-		{"vertex", oldData.Vertex, newData.Vertex},
-		{"gemini-cli", oldData.GeminiCLI, newData.GeminiCLI},
-		{"aistudio", oldData.AIStudio, newData.AIStudio},
-		{"codex", oldData.CodexFree, newData.CodexFree},
-		{"codex", oldData.CodexTeam, newData.CodexTeam},
-		{"codex", oldData.CodexPlus, newData.CodexPlus},
-		{"codex", oldData.CodexPro, newData.CodexPro},
-		{"qwen", oldData.Qwen, newData.Qwen},
-		{"iflow", oldData.IFlow, newData.IFlow},
-		{"kimi", oldData.Kimi, newData.Kimi},
-		{"antigravity", oldData.Antigravity, newData.Antigravity},
-	}
-
-	seen := make(map[string]bool, len(sections))
+	seen := make(map[string]bool, len(staticModelCatalogSections))
 	var changed []string
-	for _, s := range sections {
-		if seen[s.provider] {
+	for _, section := range staticModelCatalogSections {
+		if seen[section.provider] {
 			continue
 		}
-		if modelSectionChanged(s.oldList, s.newList) {
-			changed = append(changed, s.provider)
-			seen[s.provider] = true
+		if modelSectionChanged(section.get(oldData), section.get(newData)) {
+			changed = append(changed, section.provider)
+			seen[section.provider] = true
 		}
 	}
 	return changed
@@ -322,27 +518,8 @@ func validateModelsCatalog(data *staticModelsJSON) error {
 		return fmt.Errorf("catalog is nil")
 	}
 
-	requiredSections := []struct {
-		name   string
-		models []*ModelInfo
-	}{
-		{name: "claude", models: data.Claude},
-		{name: "gemini", models: data.Gemini},
-		{name: "vertex", models: data.Vertex},
-		{name: "gemini-cli", models: data.GeminiCLI},
-		{name: "aistudio", models: data.AIStudio},
-		{name: "codex-free", models: data.CodexFree},
-		{name: "codex-team", models: data.CodexTeam},
-		{name: "codex-plus", models: data.CodexPlus},
-		{name: "codex-pro", models: data.CodexPro},
-		{name: "qwen", models: data.Qwen},
-		{name: "iflow", models: data.IFlow},
-		{name: "kimi", models: data.Kimi},
-		{name: "antigravity", models: data.Antigravity},
-	}
-
-	for _, section := range requiredSections {
-		if err := validateModelSection(section.name, section.models); err != nil {
+	for _, section := range staticModelCatalogSections {
+		if err := validateModelSection(section.name, section.get(data)); err != nil {
 			return err
 		}
 	}
