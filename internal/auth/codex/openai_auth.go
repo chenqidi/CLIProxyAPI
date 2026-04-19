@@ -19,6 +19,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+type refreshCredentialFileContextKey struct{}
+
 // OAuth configuration constants for OpenAI Codex
 const (
 	AuthURL     = "https://auth.openai.com/oauth/authorize"
@@ -261,6 +263,7 @@ func (o *CodexAuth) CreateTokenStorage(bundle *CodexAuthBundle) *CodexTokenStora
 // with an exponential backoff strategy to handle transient network errors.
 func (o *CodexAuth) RefreshTokensWithRetry(ctx context.Context, refreshToken string, maxRetries int) (*CodexTokenData, error) {
 	var lastErr error
+	logSuffix := refreshLogCredentialSuffix(ctx)
 
 	for attempt := 0; attempt < maxRetries; attempt++ {
 		if attempt > 0 {
@@ -277,15 +280,28 @@ func (o *CodexAuth) RefreshTokensWithRetry(ctx context.Context, refreshToken str
 			return tokenData, nil
 		}
 		if isNonRetryableRefreshErr(err) {
-			log.Warnf("Token refresh attempt %d failed with non-retryable error: %v", attempt+1, err)
+			log.Warnf("Token refresh attempt %d failed with non-retryable error%s: %v", attempt+1, logSuffix, err)
 			return nil, err
 		}
 
 		lastErr = err
-		log.Warnf("Token refresh attempt %d failed: %v", attempt+1, err)
+		log.Warnf("Token refresh attempt %d failed%s: %v", attempt+1, logSuffix, err)
 	}
 
 	return nil, fmt.Errorf("token refresh failed after %d attempts: %w", maxRetries, lastErr)
+}
+
+// WithRefreshCredentialFile attaches the credential filename to the context so
+// refresh retry logs can identify which auth file is failing.
+func WithRefreshCredentialFile(ctx context.Context, credentialFile string) context.Context {
+	credentialFile = strings.TrimSpace(credentialFile)
+	if credentialFile == "" {
+		return ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, refreshCredentialFileContextKey{}, credentialFile)
 }
 
 func isNonRetryableRefreshErr(err error) bool {
@@ -294,6 +310,18 @@ func isNonRetryableRefreshErr(err error) bool {
 	}
 	raw := strings.ToLower(err.Error())
 	return strings.Contains(raw, "refresh_token_reused")
+}
+
+func refreshLogCredentialSuffix(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	credentialFile, _ := ctx.Value(refreshCredentialFileContextKey{}).(string)
+	credentialFile = strings.TrimSpace(credentialFile)
+	if credentialFile == "" {
+		return ""
+	}
+	return fmt.Sprintf(" (auth_file=%s)", credentialFile)
 }
 
 // UpdateTokenStorage updates an existing CodexTokenStorage with new token data.
