@@ -6,24 +6,17 @@ import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import iconGemini from '@/assets/icons/gemini.svg';
 import type { GeminiKeyConfig } from '@/types';
 import { maskApiKey } from '@/utils/format';
-import {
-  buildCandidateUsageSourceIds,
-  calculateStatusBarData,
-  type KeyStats,
-} from '@/utils/usage';
-import {
-  collectUsageDetailsForCandidates,
-  type UsageDetailsBySource,
-} from '@/utils/usageIndex';
+import { buildCandidateUsageSourceIds, mergeStatusBarData, type KeyStats } from '@/utils/usage';
 import styles from '@/pages/AiProvidersPage.module.scss';
 import { ProviderList } from '../ProviderList';
 import { ProviderStatusBar } from '../ProviderStatusBar';
+import type { ProviderStatusBySource } from '../types';
 import { getStatsBySource, hasDisableAllModelsRule } from '../utils';
 
 interface GeminiSectionProps {
   configs: GeminiKeyConfig[];
   keyStats: KeyStats;
-  usageDetailsBySource: UsageDetailsBySource;
+  statusBySource: ProviderStatusBySource;
   loading: boolean;
   disableControls: boolean;
   isSwitching: boolean;
@@ -36,7 +29,7 @@ interface GeminiSectionProps {
 export function GeminiSection({
   configs,
   keyStats,
-  usageDetailsBySource,
+  statusBySource,
   loading,
   disableControls,
   isSwitching,
@@ -50,7 +43,7 @@ export function GeminiSection({
   const toggleDisabled = disableControls || loading || isSwitching;
 
   const statusBarCache = useMemo(() => {
-    const cache = new Map<string, ReturnType<typeof calculateStatusBarData>>();
+    const cache = new Map<string, ReturnType<typeof mergeStatusBarData>>();
 
     configs.forEach((config) => {
       if (!config.apiKey) return;
@@ -61,12 +54,12 @@ export function GeminiSection({
       if (!candidates.length) return;
       cache.set(
         config.apiKey,
-        calculateStatusBarData(collectUsageDetailsForCandidates(usageDetailsBySource, candidates))
+        mergeStatusBarData(candidates.map((candidate) => statusBySource[candidate]))
       );
     });
 
     return cache;
-  }, [configs, usageDetailsBySource]);
+  }, [configs, statusBySource]);
 
   return (
     <>
@@ -106,7 +99,7 @@ export function GeminiSection({
             const headerEntries = Object.entries(item.headers || {});
             const configDisabled = hasDisableAllModelsRule(item.excludedModels);
             const excludedModels = item.excludedModels ?? [];
-            const statusData = statusBarCache.get(item.apiKey) || calculateStatusBarData([]);
+            const statusData = statusBarCache.get(item.apiKey) || mergeStatusBarData([]);
 
             return (
               <Fragment>

@@ -1,13 +1,8 @@
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
-import {
-  collectUsageDetails,
-  calculateServiceHealthData,
-  type ServiceHealthData,
-  type StatusBlockDetail,
-} from '@/utils/usage';
-import type { UsagePayload } from './hooks/useUsageData';
+import type { UsageHealthData } from '@/services/api';
+import type { StatusBlockDetail } from '@/utils/usage';
 import styles from '@/pages/UsagePage.module.scss';
 
 const COLOR_STOPS = [
@@ -55,19 +50,30 @@ function formatDateTime(timestamp: number): string {
 }
 
 export interface ServiceHealthCardProps {
-  usage: UsagePayload | null;
+  health: UsageHealthData | null;
   loading: boolean;
 }
 
-export function ServiceHealthCard({ usage, loading }: ServiceHealthCardProps) {
+export function ServiceHealthCard({ health, loading }: ServiceHealthCardProps) {
   const { t } = useTranslation();
   const [activeTooltip, setActiveTooltip] = useState<ActiveTooltipState | null>(null);
   const gridRef = useRef<HTMLDivElement>(null);
 
-  const healthData: ServiceHealthData = useMemo(() => {
-    const details = usage ? collectUsageDetails(usage) : [];
-    return calculateServiceHealthData(details);
-  }, [usage]);
+  const healthData = useMemo<UsageHealthData>(() => {
+    return (
+      health ?? {
+        windowStart: null,
+        windowEnd: null,
+        blocks: [],
+        blockDetails: [],
+        successRate: 100,
+        totalSuccess: 0,
+        totalFailure: 0,
+        rows: 7,
+        cols: 96,
+      }
+    );
+  }, [health]);
 
   const hasData = healthData.totalSuccess + healthData.totalFailure > 0;
 

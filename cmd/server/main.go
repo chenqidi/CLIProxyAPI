@@ -536,6 +536,13 @@ func main() {
 					password = localMgmtPassword
 				}
 
+				cleanupUsageBackend, errUsageBackend := initializeUsageStatisticsBackend(cfg, configFilePath)
+				if errUsageBackend != nil {
+					log.WithError(errUsageBackend).Warn("usage: failed to initialize SQLite backend; falling back to in-memory statistics")
+				} else {
+					defer cleanupUsageBackend()
+				}
+
 				cancel, done := cmd.StartServiceBackground(cfg, configFilePath, password)
 
 				client := tui.NewClient(cfg.Port, password)
@@ -577,6 +584,13 @@ func main() {
 				}
 			}
 		} else {
+			cleanupUsageBackend, errUsageBackend := initializeUsageStatisticsBackend(cfg, configFilePath)
+			if errUsageBackend != nil {
+				log.WithError(errUsageBackend).Warn("usage: failed to initialize SQLite backend; falling back to in-memory statistics")
+			} else {
+				defer cleanupUsageBackend()
+			}
+
 			// Start the main proxy service
 			misc.StartAntigravityVersionUpdater(context.Background())
 			if !localModel {
@@ -585,4 +599,60 @@ func main() {
 			cmd.StartService(cfg, configFilePath, password)
 		}
 	}
+}
+
+func initializeUsageStatisticsBackend(cfg *config.Config, configFilePath string) (func(), error) {
+	if cfg == nil {
+		return func() {}, nil
+	}
+
+	repoPath := resolveUsageStatisticsSQLitePath(configFilePath, cfg.UsageStatistics.SQLitePath)
+	repo, err := usage.NewSQLiteRepository(context.Background(), usage.SQLiteRepositoryConfig{
+		Path:          repoPath,
+		BatchSize:     cfg.UsageStatistics.BatchSize,
+		FlushInterval: time.Duration(cfg.UsageStatistics.FlushIntervalMs) * time.Millisecond,
+		RetentionDays: cfg.UsageStatistics.RetentionDays,
+	})
+	if err != nil {
+		return nil, err
+	}
+	usage.GetRequestStatistics().SetRepository(repo)
+	log.WithField("path", repo.Path()).Info("usage: SQLite statistics backend initialized")
+
+	return func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := repo.Close(ctx); err != nil {
+			log.WithError(err).Warn("usage: failed to close SQLite statistics backend")
+		}
+		usage.GetRequestStatistics().SetRepository(nil)
+	}, nil
+}
+
+func resolveUsageStatisticsSQLitePath(configFilePath, configuredPath string) string {
+	configuredPath = strings.TrimSpace(configuredPath)
+	if configuredPath == "" {
+		return filepath.Join(resolveUsageStatisticsDefaultBaseDir(configFilePath), "usage", "usage.sqlite")
+	}
+	if filepath.IsAbs(configuredPath) {
+		return configuredPath
+	}
+	return filepath.Join(resolveUsageStatisticsConfiguredBaseDir(configFilePath), configuredPath)
+}
+
+func resolveUsageStatisticsDefaultBaseDir(configFilePath string) string {
+	if writable := util.WritablePath(); writable != "" {
+		return writable
+	}
+	return resolveUsageStatisticsConfiguredBaseDir(configFilePath)
+}
+
+func resolveUsageStatisticsConfiguredBaseDir(configFilePath string) string {
+	if strings.TrimSpace(configFilePath) != "" {
+		return filepath.Dir(configFilePath)
+	}
+	if wd, err := os.Getwd(); err == nil {
+		return wd
+	}
+	return os.TempDir()
 }

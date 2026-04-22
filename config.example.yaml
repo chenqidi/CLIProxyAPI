@@ -59,8 +59,19 @@ logs-max-total-size-mb: 0
 # When exceeded, the oldest error log files are deleted. Default is 10. Set to 0 to disable cleanup.
 error-logs-max-files: 10
 
-# When false, disable in-memory usage statistics aggregation
+# When false, disable usage statistics recording
 usage-statistics-enabled: false
+
+# SQLite-backed usage statistics storage settings.
+usage-statistics:
+  # SQLite file path. Leave empty to use <writable-path|config-dir>/usage/usage.sqlite
+  sqlite-path: ""
+  # Keep only the most recent N days of raw usage events.
+  retention-days: 30
+  # Flush queued usage events to SQLite in transactions of up to N rows.
+  batch-size: 128
+  # Maximum delay before queued usage events are flushed to SQLite.
+  flush-interval-ms: 1000
 
 # Optional server-side overrides for usage cost calculation in the management UI.
 # Built-in defaults for selected GPT models still apply when an entry is omitted here.

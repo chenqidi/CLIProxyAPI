@@ -34,7 +34,7 @@ func (Executor) Identifier() string { return "myprov" }
 
 // 可选：在原始 HTTP 请求上注入凭据
 func (Executor) PrepareRequest(req *http.Request, a *coreauth.Auth) error {
-    // 例如：req.Header.Set("Authorization", "Bearer "+a.Attributes["api_key"]) 
+    // 例如：req.Header.Set("Authorization", "Bearer "+a.Attributes["api_key"])
     return nil
 }
 

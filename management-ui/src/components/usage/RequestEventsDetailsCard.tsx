@@ -5,15 +5,12 @@ import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
 import { authFilesApi } from '@/services/api/authFiles';
+import type { UsageEventsPageData } from '@/services/api';
 import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
 import type { AuthFileItem } from '@/types/authFile';
 import type { CredentialInfo } from '@/types/sourceInfo';
 import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
-import {
-  collectUsageDetails,
-  extractTotalTokens,
-  normalizeAuthIndex
-} from '@/utils/usage';
+import { normalizeAuthIndex } from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -39,7 +36,7 @@ type RequestEventRow = {
 };
 
 export interface RequestEventsDetailsCardProps {
-  usage: unknown;
+  events: UsageEventsPageData | null;
   loading: boolean;
   geminiKeys: GeminiKeyConfig[];
   claudeConfigs: ProviderKeyConfig[];
@@ -47,12 +44,6 @@ export interface RequestEventsDetailsCardProps {
   vertexConfigs: ProviderKeyConfig[];
   openaiProviders: OpenAIProviderConfig[];
 }
-
-const toNumber = (value: unknown): number => {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 0;
-  return parsed;
-};
 
 const encodeCsv = (value: string | number): string => {
   const text = String(value ?? '');
@@ -62,7 +53,7 @@ const encodeCsv = (value: string | number): string => {
 };
 
 export function RequestEventsDetailsCard({
-  usage,
+  events,
   loading,
   geminiKeys,
   claudeConfigs,
@@ -115,58 +106,36 @@ export function RequestEventsDetailsCard({
   );
 
   const rows = useMemo<RequestEventRow[]>(() => {
-    const details = collectUsageDetails(usage);
+    if (!events) return [];
 
-    return details
-      .map((detail, index) => {
-        const timestamp = detail.timestamp;
-        const timestampMs =
-          typeof detail.__timestampMs === 'number' && detail.__timestampMs > 0
-            ? detail.__timestampMs
-            : Date.parse(timestamp);
+    return events.items
+      .map((item, index) => {
+        const timestamp = item.timestamp;
+        const timestampMs = Date.parse(timestamp);
         const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
-        const sourceRaw = String(detail.source ?? '').trim();
-        const authIndexRaw = detail.auth_index as unknown;
-        const authIndex =
-          authIndexRaw === null || authIndexRaw === undefined || authIndexRaw === ''
-            ? '-'
-            : String(authIndexRaw);
-        const sourceInfo = resolveSourceDisplay(sourceRaw, authIndexRaw, sourceInfoMap, authFileMap);
-        const source = sourceInfo.displayName;
-        const sourceType = sourceInfo.type;
-        const model = String(detail.__modelName ?? '').trim() || '-';
-        const inputTokens = Math.max(toNumber(detail.tokens?.input_tokens), 0);
-        const outputTokens = Math.max(toNumber(detail.tokens?.output_tokens), 0);
-        const reasoningTokens = Math.max(toNumber(detail.tokens?.reasoning_tokens), 0);
-        const cachedTokens = Math.max(
-          Math.max(toNumber(detail.tokens?.cached_tokens), 0),
-          Math.max(toNumber(detail.tokens?.cache_tokens), 0)
-        );
-        const totalTokens = Math.max(
-          toNumber(detail.tokens?.total_tokens),
-          extractTotalTokens(detail)
-        );
-
+        const sourceRaw = String(item.source ?? '').trim() || '-';
+        const authIndex = normalizeAuthIndex(item.authIndex) ?? '-';
+        const sourceInfo = resolveSourceDisplay(sourceRaw, item.authIndex, sourceInfoMap, authFileMap);
         return {
-          id: `${timestamp}-${model}-${sourceRaw || source}-${authIndex}-${index}`,
+          id: `${timestamp}-${item.model}-${sourceRaw}-${authIndex}-${index}`,
           timestamp,
           timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
           timestampLabel: date ? date.toLocaleString(i18n.language) : timestamp || '-',
-          model,
-          sourceRaw: sourceRaw || '-',
-          source,
-          sourceType,
+          model: item.model || '-',
+          sourceRaw,
+          source: sourceInfo.displayName,
+          sourceType: sourceInfo.type,
           authIndex,
-          failed: detail.failed === true,
-          inputTokens,
-          outputTokens,
-          reasoningTokens,
-          cachedTokens,
-          totalTokens
+          failed: item.failed === true,
+          inputTokens: Math.max(item.tokens.inputTokens, 0),
+          outputTokens: Math.max(item.tokens.outputTokens, 0),
+          reasoningTokens: Math.max(item.tokens.reasoningTokens, 0),
+          cachedTokens: Math.max(item.tokens.cachedTokens, 0),
+          totalTokens: Math.max(item.tokens.totalTokens, 0)
         };
       })
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [authFileMap, i18n.language, sourceInfoMap, usage]);
+  }, [authFileMap, events, i18n.language, sourceInfoMap]);
 
   const modelOptions = useMemo(
     () => [
@@ -201,14 +170,8 @@ export function RequestEventsDetailsCard({
     [rows, t]
   );
 
-  const modelOptionSet = useMemo(
-    () => new Set(modelOptions.map((option) => option.value)),
-    [modelOptions]
-  );
-  const sourceOptionSet = useMemo(
-    () => new Set(sourceOptions.map((option) => option.value)),
-    [sourceOptions]
-  );
+  const modelOptionSet = useMemo(() => new Set(modelOptions.map((option) => option.value)), [modelOptions]);
+  const sourceOptionSet = useMemo(() => new Set(sourceOptions.map((option) => option.value)), [sourceOptions]);
   const authIndexOptionSet = useMemo(
     () => new Set(authIndexOptions.map((option) => option.value)),
     [authIndexOptions]
@@ -232,10 +195,7 @@ export function RequestEventsDetailsCard({
     [effectiveAuthIndexFilter, effectiveModelFilter, effectiveSourceFilter, rows]
   );
 
-  const renderedRows = useMemo(
-    () => filteredRows.slice(0, MAX_RENDERED_EVENTS),
-    [filteredRows]
-  );
+  const renderedRows = useMemo(() => filteredRows.slice(0, MAX_RENDERED_EVENTS), [filteredRows]);
 
   const hasActiveFilters =
     effectiveModelFilter !== ALL_FILTER ||
@@ -408,11 +368,11 @@ export function RequestEventsDetailsCard({
         <>
           <div className={styles.requestEventsMeta}>
             <span>{t('usage_stats.request_events_count', { count: filteredRows.length })}</span>
-            {filteredRows.length > MAX_RENDERED_EVENTS && (
+            {(events?.hasMore || filteredRows.length > MAX_RENDERED_EVENTS) && (
               <span className={styles.requestEventsLimitHint}>
                 {t('usage_stats.request_events_limit_hint', {
-                  shown: MAX_RENDERED_EVENTS,
-                  total: filteredRows.length
+                  shown: renderedRows.length,
+                  total: Math.max(filteredRows.length, events?.totalItems ?? filteredRows.length)
                 })}
               </span>
             )}

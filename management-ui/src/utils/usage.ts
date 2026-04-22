@@ -1462,6 +1462,107 @@ export function calculateStatusBarData(
   };
 }
 
+const STATUS_BAR_BLOCK_COUNT = 20;
+const STATUS_BAR_BLOCK_DURATION_MS = 10 * 60 * 1000;
+
+export function createEmptyStatusBarData(nowMs: number = Date.now()): StatusBarData {
+  const windowStart = nowMs - STATUS_BAR_BLOCK_COUNT * STATUS_BAR_BLOCK_DURATION_MS;
+  return {
+    blocks: Array.from({ length: STATUS_BAR_BLOCK_COUNT }, () => 'idle' as StatusBlockState),
+    blockDetails: Array.from({ length: STATUS_BAR_BLOCK_COUNT }, (_, idx) => {
+      const startTime = windowStart + idx * STATUS_BAR_BLOCK_DURATION_MS;
+      return {
+        success: 0,
+        failure: 0,
+        rate: -1,
+        startTime,
+        endTime: startTime + STATUS_BAR_BLOCK_DURATION_MS
+      };
+    }),
+    successRate: 100,
+    totalSuccess: 0,
+    totalFailure: 0
+  };
+}
+
+export function mergeStatusBarData(
+  entries: Array<StatusBarData | null | undefined>
+): StatusBarData {
+  const statusEntries = entries.filter((entry): entry is StatusBarData => Boolean(entry));
+  if (!statusEntries.length) {
+    return createEmptyStatusBarData();
+  }
+
+  const blockCount = statusEntries.reduce(
+    (max, entry) => Math.max(max, entry.blockDetails.length, entry.blocks.length),
+    0
+  );
+  if (blockCount <= 0) {
+    return createEmptyStatusBarData();
+  }
+
+  const reference = statusEntries.find((entry) => entry.blockDetails.length === blockCount) ?? statusEntries[0];
+  const merged: StatusBarData = {
+    blocks: Array.from({ length: blockCount }, () => 'idle'),
+    blockDetails: Array.from({ length: blockCount }, (_, idx) => {
+      const detail = reference.blockDetails[idx];
+      return {
+        success: 0,
+        failure: 0,
+        rate: -1,
+        startTime: detail?.startTime ?? 0,
+        endTime: detail?.endTime ?? 0
+      };
+    }),
+    successRate: 100,
+    totalSuccess: 0,
+    totalFailure: 0
+  };
+
+  statusEntries.forEach((entry) => {
+    merged.totalSuccess += entry.totalSuccess;
+    merged.totalFailure += entry.totalFailure;
+
+    entry.blockDetails.forEach((detail, idx) => {
+      const target = merged.blockDetails[idx];
+      if (!target) return;
+      target.success += detail.success;
+      target.failure += detail.failure;
+      if (!target.startTime && detail.startTime) {
+        target.startTime = detail.startTime;
+      }
+      if (!target.endTime && detail.endTime) {
+        target.endTime = detail.endTime;
+      }
+    });
+  });
+
+  merged.blockDetails.forEach((detail, idx) => {
+    const total = detail.success + detail.failure;
+    if (total === 0) {
+      merged.blocks[idx] = 'idle';
+      detail.rate = -1;
+      return;
+    }
+    if (detail.failure === 0) {
+      merged.blocks[idx] = 'success';
+      detail.rate = 1;
+      return;
+    }
+    if (detail.success === 0) {
+      merged.blocks[idx] = 'failure';
+      detail.rate = 0;
+      return;
+    }
+    merged.blocks[idx] = 'mixed';
+    detail.rate = detail.success / total;
+  });
+
+  const total = merged.totalSuccess + merged.totalFailure;
+  merged.successRate = total > 0 ? (merged.totalSuccess / total) * 100 : 100;
+  return merged;
+}
+
 /**
  * 服务健康监测数据（最近168小时/7天，7×96网格）
  * 每个格子代表15分钟的健康度

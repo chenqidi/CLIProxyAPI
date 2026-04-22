@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { authFilesApi } from '@/services/api/authFiles';
-import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
+import { usageApi, type UsageEventItem, type UsageEventsQuery } from '@/services/api';
 import type { AuthFileItem, Config } from '@/types';
 import type { CredentialInfo, SourceInfo } from '@/types/sourceInfo';
 import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
-import {
-  collectUsageDetailsWithEndpoint,
-  normalizeAuthIndex,
-  type UsageDetailWithEndpoint
-} from '@/utils/usage';
+import { normalizeAuthIndex, type UsageDetailWithEndpoint } from '@/utils/usage';
 import type { ParsedLogLine } from './logTypes';
 
 export type TraceCandidate = {
@@ -20,6 +16,8 @@ export type TraceCandidate = {
 
 const TRACE_AUTH_CACHE_MS = 60 * 1000;
 const TRACE_MAX_CANDIDATES = 5;
+const TRACE_EVENTS_PAGE_SIZE = 200;
+const TRACE_LOOKUP_WINDOW_MS = 2 * 60 * 60 * 1000;
 
 const TRACEABLE_EXACT_PATHS = new Set(['/v1/chat/completions', '/v1/messages', '/v1/responses']);
 const TRACEABLE_PREFIX_PATHS = ['/v1beta/models'];
@@ -35,6 +33,11 @@ const normalizeTraceablePath = (value?: string): string => {
   if (!normalized || normalized === '/') return normalized;
   return normalized.replace(/\/+$/, '');
 };
+
+const normalizeTraceMethod = (value?: string) =>
+  String(value ?? '')
+    .trim()
+    .toUpperCase();
 
 export const isTraceableRequestPath = (value?: string): boolean => {
   const normalizedPath = normalizeTraceablePath(value);
@@ -55,6 +58,67 @@ const isPathMatch = (logPath: string, detailPath: string): boolean => {
   if (!logPath || !detailPath) return false;
   return logPath === detailPath || logPath.startsWith(detailPath) || detailPath.startsWith(logPath);
 };
+
+const buildTraceEndpointLabel = (
+  requestMethod: string,
+  requestPath: string,
+  fallback: string
+): string => {
+  const normalizedMethod = normalizeTraceMethod(requestMethod);
+  const normalizedPath = normalizeTracePath(requestPath);
+  if (normalizedPath) {
+    return normalizedMethod ? `${normalizedMethod} ${normalizedPath}` : normalizedPath;
+  }
+  return fallback.trim() || 'unknown';
+};
+
+const buildTraceEventsQuery = (line: ParsedLogLine): UsageEventsQuery | null => {
+  const requestPath = normalizeTracePath(line.path);
+  if (!requestPath) return null;
+
+  const timestampMs = line.timestamp ? Date.parse(line.timestamp) : Number.NaN;
+  const query: UsageEventsQuery = {
+    page: 1,
+    pageSize: TRACE_EVENTS_PAGE_SIZE,
+    requestMethod: normalizeTraceMethod(line.method),
+    requestPath,
+  };
+
+  if (!Number.isNaN(timestampMs)) {
+    query.start = new Date(timestampMs - TRACE_LOOKUP_WINDOW_MS).toISOString();
+    query.end = new Date(timestampMs + TRACE_LOOKUP_WINDOW_MS).toISOString();
+  }
+
+  return query;
+};
+
+const adaptTraceUsageDetails = (items: UsageEventItem[]): UsageDetailWithEndpoint[] =>
+  items.map((item) => {
+    const endpointLabel = buildTraceEndpointLabel(
+      item.requestMethod,
+      item.requestPath,
+      item.apiKey || item.provider
+    );
+    const timestampMs = Date.parse(item.timestamp);
+    return {
+      timestamp: item.timestamp,
+      source: item.source,
+      auth_index: (item.authIndex || '') as unknown as number,
+      tokens: {
+        input_tokens: item.tokens.inputTokens,
+        output_tokens: item.tokens.outputTokens,
+        reasoning_tokens: item.tokens.reasoningTokens,
+        cached_tokens: item.tokens.cachedTokens,
+        total_tokens: item.tokens.totalTokens,
+      },
+      failed: item.failed,
+      __modelName: item.model,
+      __endpoint: endpointLabel,
+      __endpointMethod: item.requestMethod || undefined,
+      __endpointPath: normalizeTracePath(item.requestPath) || undefined,
+      __timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
+    };
+  });
 
 const getErrorMessage = (err: unknown): string => {
   if (err instanceof Error) return err.message;
@@ -88,75 +152,79 @@ interface UseTraceResolverReturn {
 export function useTraceResolver(options: UseTraceResolverOptions): UseTraceResolverReturn {
   const { traceScopeKey, connectionStatus, config, requestLogDownloading } = options;
   const { t } = useTranslation();
-  const usageSnapshot = useUsageStatsStore((state) => state.usage);
-  const usageScopeKey = useUsageStatsStore((state) => state.scopeKey);
-  const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
 
   const [traceLogLine, setTraceLogLine] = useState<ParsedLogLine | null>(null);
+  const [traceUsageDetails, setTraceUsageDetails] = useState<UsageDetailWithEndpoint[]>([]);
   const [traceAuthFileMap, setTraceAuthFileMap] = useState<Map<string, CredentialInfo>>(new Map());
   const [traceLoading, setTraceLoading] = useState(false);
   const [traceError, setTraceError] = useState('');
 
   const traceAuthLoadedAtRef = useRef(0);
   const traceScopeKeyRef = useRef('');
-
-  const scopedUsageSnapshot = usageScopeKey === traceScopeKey ? usageSnapshot : null;
-  const traceUsageDetails = useMemo<UsageDetailWithEndpoint[]>(
-    () => collectUsageDetailsWithEndpoint(scopedUsageSnapshot),
-    [scopedUsageSnapshot]
-  );
+  const traceLogLineRef = useRef<ParsedLogLine | null>(null);
 
   const traceSourceInfoMap = useMemo(() => buildSourceInfoMap(config ?? {}), [config]);
 
-  const loadTraceUsageDetailsInternal = useCallback(async (forceUsage: boolean) => {
-    if (traceScopeKeyRef.current !== traceScopeKey) {
-      traceScopeKeyRef.current = traceScopeKey;
-      traceAuthLoadedAtRef.current = 0;
-      setTraceAuthFileMap(new Map());
-      setTraceError('');
-    }
-
-    if (traceLoading) return;
-
-    const now = Date.now();
-    const authFresh =
-      traceAuthLoadedAtRef.current > 0 && now - traceAuthLoadedAtRef.current < TRACE_AUTH_CACHE_MS;
-
-    setTraceLoading(true);
-    setTraceError('');
-    try {
-      const [, authFilesResponse] = await Promise.all([
-        loadUsageStats({
-          force: forceUsage,
-          staleTimeMs: USAGE_STATS_STALE_TIME_MS
-        }),
-        authFresh ? Promise.resolve(null) : authFilesApi.list().catch(() => null)
-      ]);
-
-      if (authFilesResponse !== null) {
-        const files = Array.isArray(authFilesResponse)
-          ? authFilesResponse
-          : (authFilesResponse as { files?: AuthFileItem[] })?.files;
-        if (Array.isArray(files)) {
-          const map = new Map<string, CredentialInfo>();
-          files.forEach((file) => {
-            const key = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
-            if (!key) return;
-            map.set(key, {
-              name: file.name || key,
-              type: (file.type || file.provider || '').toString()
-            });
-          });
-          setTraceAuthFileMap(map);
-          traceAuthLoadedAtRef.current = Date.now();
-        }
+  const loadTraceUsageDetailsInternal = useCallback(
+    async (_forceUsage: boolean, lineOverride?: ParsedLogLine | null) => {
+      if (traceScopeKeyRef.current !== traceScopeKey) {
+        traceScopeKeyRef.current = traceScopeKey;
+        traceAuthLoadedAtRef.current = 0;
+        traceLogLineRef.current = null;
+        setTraceUsageDetails([]);
+        setTraceAuthFileMap(new Map());
+        setTraceError('');
       }
-    } catch (err: unknown) {
-      setTraceError(getErrorMessage(err) || t('logs.trace_usage_load_error'));
-    } finally {
-      setTraceLoading(false);
-    }
-  }, [loadUsageStats, t, traceLoading, traceScopeKey]);
+
+      if (traceLoading) return;
+      const activeLine = lineOverride ?? traceLogLineRef.current;
+      const eventsQuery = activeLine ? buildTraceEventsQuery(activeLine) : null;
+      if (!eventsQuery) {
+        setTraceUsageDetails([]);
+        return;
+      }
+
+      const now = Date.now();
+      const authFresh =
+        traceAuthLoadedAtRef.current > 0 &&
+        now - traceAuthLoadedAtRef.current < TRACE_AUTH_CACHE_MS;
+
+      setTraceLoading(true);
+      setTraceError('');
+      setTraceUsageDetails([]);
+      try {
+        const [eventsResponse, authFilesResponse] = await Promise.all([
+          usageApi.getUsageEvents(eventsQuery),
+          authFresh ? Promise.resolve(null) : authFilesApi.list().catch(() => null),
+        ]);
+        setTraceUsageDetails(adaptTraceUsageDetails(eventsResponse.items));
+
+        if (authFilesResponse !== null) {
+          const files = Array.isArray(authFilesResponse)
+            ? authFilesResponse
+            : (authFilesResponse as { files?: AuthFileItem[] })?.files;
+          if (Array.isArray(files)) {
+            const map = new Map<string, CredentialInfo>();
+            files.forEach((file) => {
+              const key = normalizeAuthIndex(file['auth_index'] ?? file.authIndex);
+              if (!key) return;
+              map.set(key, {
+                name: file.name || key,
+                type: (file.type || file.provider || '').toString(),
+              });
+            });
+            setTraceAuthFileMap(map);
+            traceAuthLoadedAtRef.current = Date.now();
+          }
+        }
+      } catch (err: unknown) {
+        setTraceError(getErrorMessage(err) || t('logs.trace_usage_load_error'));
+      } finally {
+        setTraceLoading(false);
+      }
+    },
+    [t, traceLoading, traceScopeKey]
+  );
 
   const loadTraceUsageDetails = useCallback(async () => {
     await loadTraceUsageDetailsInternal(false);
@@ -170,6 +238,8 @@ export function useTraceResolver(options: UseTraceResolverOptions): UseTraceReso
     if (connectionStatus === 'connected') {
       traceScopeKeyRef.current = traceScopeKey;
       traceAuthLoadedAtRef.current = 0;
+      traceLogLineRef.current = null;
+      setTraceUsageDetails([]);
       setTraceAuthFileMap(new Map());
       setTraceLoading(false);
       setTraceError('');
@@ -182,9 +252,7 @@ export function useTraceResolver(options: UseTraceResolverOptions): UseTraceReso
     const logPath = normalizeTracePath(traceLogLine.path);
     if (!logPath) return [];
 
-    const logTimestampMs = traceLogLine.timestamp
-      ? Date.parse(traceLogLine.timestamp)
-      : Number.NaN;
+    const logTimestampMs = traceLogLine.timestamp ? Date.parse(traceLogLine.timestamp) : Number.NaN;
 
     // Step 1: filter by path match
     const pathMatched = traceUsageDetails.filter((detail) =>
@@ -195,9 +263,7 @@ export function useTraceResolver(options: UseTraceResolverOptions): UseTraceReso
     // Step 2: try to extract model from log message, then filter by model
     const logModel = extractModelFromMessage(traceLogLine.message);
     const modelMatched = logModel
-      ? pathMatched.filter(
-          (d) => d.__modelName?.toLowerCase() === logModel.toLowerCase()
-        )
+      ? pathMatched.filter((d) => d.__modelName?.toLowerCase() === logModel.toLowerCase())
       : [];
 
     // Step 3: prefer model-matched set; fall back to path-matched
@@ -226,15 +292,18 @@ export function useTraceResolver(options: UseTraceResolverOptions): UseTraceReso
     (line: ParsedLogLine) => {
       if (!isTraceableRequestPath(line.path)) return;
       setTraceError('');
+      traceLogLineRef.current = line;
       setTraceLogLine(line);
-      void loadTraceUsageDetails();
+      void loadTraceUsageDetailsInternal(false, line);
     },
-    [loadTraceUsageDetails]
+    [loadTraceUsageDetailsInternal]
   );
 
   const closeTraceModal = useCallback(() => {
     if (requestLogDownloading) return;
+    traceLogLineRef.current = null;
     setTraceLogLine(null);
+    setTraceUsageDetails([]);
   }, [requestLogDownloading]);
 
   return {
@@ -246,6 +315,6 @@ export function useTraceResolver(options: UseTraceResolverOptions): UseTraceReso
     loadTraceUsageDetails,
     refreshTraceUsageDetails,
     openTraceModal,
-    closeTraceModal
+    closeTraceModal,
   };
 }

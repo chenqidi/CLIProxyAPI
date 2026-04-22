@@ -1,26 +1,26 @@
 import { useCallback } from 'react';
-import { USAGE_STATS_STALE_TIME_MS, useUsageStatsStore } from '@/stores';
-import type { KeyStats, UsageDetail } from '@/utils/usage';
+import { USAGE_STATUS_STALE_TIME_MS, useUsageStatusStore } from '@/stores';
+import type { KeyStats, StatusBarData } from '@/utils/usage';
 
 export type UseAuthFilesStatsResult = {
   keyStats: KeyStats;
-  usageDetails: UsageDetail[];
+  statusByAuthIndex: Record<string, StatusBarData>;
   loadKeyStats: () => Promise<void>;
   refreshKeyStats: () => Promise<void>;
 };
 
 export function useAuthFilesStats(): UseAuthFilesStatsResult {
-  const keyStats = useUsageStatsStore((state) => state.keyStats);
-  const usageDetails = useUsageStatsStore((state) => state.usageDetails);
-  const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
+  const keyStats = useUsageStatusStore((state) => state.keyStats);
+  const statusByAuthIndex = useUsageStatusStore((state) => state.statusByAuthIndex);
+  const loadUsageStatus = useUsageStatusStore((state) => state.loadUsageStatus);
 
   const loadKeyStats = useCallback(async () => {
-    await loadUsageStats({ staleTimeMs: USAGE_STATS_STALE_TIME_MS });
-  }, [loadUsageStats]);
+    await loadUsageStatus({ staleTimeMs: USAGE_STATUS_STALE_TIME_MS });
+  }, [loadUsageStatus]);
 
   const refreshKeyStats = useCallback(async () => {
-    await loadUsageStats({ force: true, staleTimeMs: USAGE_STATS_STALE_TIME_MS });
-  }, [loadUsageStats]);
+    await loadUsageStatus({ force: true, staleTimeMs: USAGE_STATUS_STALE_TIME_MS });
+  }, [loadUsageStatus]);
 
-  return { keyStats, usageDetails, loadKeyStats, refreshKeyStats };
+  return { keyStats, statusByAuthIndex, loadKeyStats, refreshKeyStats };
 }

@@ -35,8 +35,8 @@ export function AutocompleteInput({
   const [isOpen, setIsOpen] = useState(false);
   const [highlightedIndex, setHighlightedIndex] = useState(-1);
   const containerRef = useRef<HTMLDivElement>(null);
-  
-  const normalizedOptions = options.map(opt => 
+
+  const normalizedOptions = options.map(opt =>
     typeof opt === 'string' ? { value: opt, label: opt } : { value: opt.value, label: opt.label || opt.value }
   );
 
@@ -75,7 +75,7 @@ export function AutocompleteInput({
           setIsOpen(true);
           return;
       }
-      setHighlightedIndex(prev => 
+      setHighlightedIndex(prev =>
         prev < filteredOptions.length - 1 ? prev + 1 : prev
       );
     } else if (e.key === 'ArrowUp') {
@@ -100,9 +100,9 @@ export function AutocompleteInput({
     <div className={`form-group ${wrapperClassName}`} ref={containerRef} style={wrapperStyle}>
       {label && <label htmlFor={id}>{label}</label>}
       <div style={{ position: 'relative' }}>
-        <input 
+        <input
             id={id}
-            className={`input ${className}`.trim()} 
+            className={`input ${className}`.trim()}
             value={value}
             onChange={handleInputChange}
             onFocus={() => setIsOpen(true)}
@@ -112,11 +112,11 @@ export function AutocompleteInput({
             autoComplete="off"
             style={{ paddingRight: 32 }}
         />
-        <div 
-            style={{ 
-                position: 'absolute', 
-                right: 8, 
-                top: '50%', 
+        <div
+            style={{
+                position: 'absolute',
+                right: 8,
+                top: '50%',
                 transform: 'translateY(-50%)',
                 display: 'flex',
                 alignItems: 'center',

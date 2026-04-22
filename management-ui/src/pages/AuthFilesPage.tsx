@@ -285,7 +285,7 @@ export function AuthFilesPage() {
   const previousSelectionCountRef = useRef(0);
   const selectionCountRef = useRef(0);
 
-  const { keyStats, usageDetails, loadKeyStats, refreshKeyStats } = useAuthFilesStats();
+  const { keyStats, statusByAuthIndex, loadKeyStats, refreshKeyStats } = useAuthFilesStats();
   const {
     files,
     selectedFiles,
@@ -314,7 +314,7 @@ export function AuthFilesPage() {
     batchDelete,
   } = useAuthFilesData({ refreshKeyStats });
 
-  const statusBarCache = useAuthFilesStatusBarCache(files, usageDetails);
+  const statusBarCache = useAuthFilesStatusBarCache(files, statusByAuthIndex);
   const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
 
   const {

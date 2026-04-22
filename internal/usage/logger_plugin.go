@@ -6,13 +6,13 @@ package usage
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
+	log "github.com/sirupsen/logrus"
 )
 
 var statisticsEnabled atomic.Bool
@@ -22,24 +22,15 @@ func init() {
 	coreusage.RegisterPlugin(NewLoggerPlugin())
 }
 
-// LoggerPlugin collects in-memory request statistics for usage analysis.
-// It implements coreusage.Plugin to receive usage records emitted by the runtime.
+// LoggerPlugin consumes runtime usage records and forwards them to the shared statistics store.
 type LoggerPlugin struct {
 	stats *RequestStatistics
 }
 
 // NewLoggerPlugin constructs a new logger plugin instance.
-//
-// Returns:
-//   - *LoggerPlugin: A new logger plugin instance wired to the shared statistics store.
 func NewLoggerPlugin() *LoggerPlugin { return &LoggerPlugin{stats: defaultRequestStatistics} }
 
 // HandleUsage implements coreusage.Plugin.
-// It updates the in-memory statistics store whenever a usage record is received.
-//
-// Parameters:
-//   - ctx: The context for the usage record
-//   - record: The usage record to aggregate
 func (p *LoggerPlugin) HandleUsage(ctx context.Context, record coreusage.Record) {
 	if !statisticsEnabled.Load() {
 		return
@@ -50,15 +41,16 @@ func (p *LoggerPlugin) HandleUsage(ctx context.Context, record coreusage.Record)
 	p.stats.Record(ctx, record)
 }
 
-// SetStatisticsEnabled toggles whether in-memory statistics are recorded.
+// SetStatisticsEnabled toggles whether usage statistics are recorded.
 func SetStatisticsEnabled(enabled bool) { statisticsEnabled.Store(enabled) }
 
 // StatisticsEnabled reports the current recording state.
 func StatisticsEnabled() bool { return statisticsEnabled.Load() }
 
-// RequestStatistics maintains aggregated request metrics in memory.
+// RequestStatistics maintains compatibility aggregates while allowing a persistent repository backend.
 type RequestStatistics struct {
-	mu sync.RWMutex
+	mu   sync.RWMutex
+	repo Repository
 
 	totalRequests int64
 	successCount  int64
@@ -151,7 +143,26 @@ func NewRequestStatistics() *RequestStatistics {
 	}
 }
 
-// Record ingests a new usage record and updates the aggregates.
+// SetRepository switches the statistics store to a persistent backend.
+func (s *RequestStatistics) SetRepository(repo Repository) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.repo = repo
+}
+
+func (s *RequestStatistics) repository() Repository {
+	if s == nil {
+		return nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.repo
+}
+
+// Record ingests a new usage record and updates the aggregates or persistent backend.
 func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record) {
 	if s == nil {
 		return
@@ -159,53 +170,57 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 	if !statisticsEnabled.Load() {
 		return
 	}
-	timestamp := record.RequestedAt
-	if timestamp.IsZero() {
-		timestamp = time.Now()
-	}
-	detail := normaliseDetail(record.Detail)
-	totalTokens := detail.TotalTokens
-	statsKey := record.APIKey
-	if statsKey == "" {
-		statsKey = resolveAPIIdentifier(ctx, record)
-	}
-	failed := record.Failed
-	if !failed {
-		failed = !resolveSuccess(ctx)
-	}
-	success := !failed
-	modelName := record.Model
-	if modelName == "" {
-		modelName = "unknown"
-	}
-	dayKey := timestamp.Format("2006-01-02")
-	hourKey := timestamp.Hour()
 
+	if repo := s.repository(); repo != nil {
+		if err := repo.Record(ctx, NewUsageEvent(ctx, record)); err != nil {
+			log.WithError(err).Warn("usage: failed to persist usage event")
+		}
+		return
+	}
+
+	event := NewUsageEvent(ctx, record)
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.recordUsageEvent(event)
+}
+
+func (s *RequestStatistics) recordUsageEvent(event UsageEvent) {
+	if s == nil {
+		return
+	}
+	event = normaliseUsageEvent(event)
+	totalTokens := event.Tokens.TotalTokens
+	if totalTokens < 0 {
+		totalTokens = 0
+	}
 
 	s.totalRequests++
-	if success {
-		s.successCount++
-	} else {
+	if event.Failed {
 		s.failureCount++
+	} else {
+		s.successCount++
 	}
 	s.totalTokens += totalTokens
 
-	stats, ok := s.apis[statsKey]
+	stats, ok := s.apis[event.APIKey]
 	if !ok {
 		stats = &apiStats{Models: make(map[string]*modelStats)}
-		s.apis[statsKey] = stats
+		s.apis[event.APIKey] = stats
+	} else if stats.Models == nil {
+		stats.Models = make(map[string]*modelStats)
 	}
-	s.updateAPIStats(stats, modelName, RequestDetail{
-		Timestamp: timestamp,
-		LatencyMs: normaliseLatency(record.Latency),
-		Source:    record.Source,
-		AuthIndex: record.AuthIndex,
-		Tokens:    detail,
-		Failed:    failed,
+
+	s.updateAPIStats(stats, event.Model, RequestDetail{
+		Timestamp: event.RequestedAt,
+		LatencyMs: event.LatencyMs,
+		Source:    event.Source,
+		AuthIndex: event.AuthIndex,
+		Tokens:    event.Tokens,
+		Failed:    event.Failed,
 	})
 
+	dayKey := event.RequestedAt.Format("2006-01-02")
+	hourKey := event.RequestedAt.Hour()
 	s.requestsByDay[dayKey]++
 	s.requestsByHour[hourKey]++
 	s.tokensByDay[dayKey] += totalTokens
@@ -232,15 +247,33 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 		return result
 	}
 
+	if repo := s.repository(); repo != nil {
+		snapshot, err := repo.Snapshot(context.Background())
+		if err != nil {
+			log.WithError(err).Warn("usage: failed to build snapshot from repository")
+			return StatisticsSnapshot{}
+		}
+		return snapshot
+	}
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.snapshotLocked()
+}
 
-	result.TotalRequests = s.totalRequests
-	result.SuccessCount = s.successCount
-	result.FailureCount = s.failureCount
-	result.TotalTokens = s.totalTokens
+func (s *RequestStatistics) snapshotLocked() StatisticsSnapshot {
+	result := StatisticsSnapshot{
+		TotalRequests:  s.totalRequests,
+		SuccessCount:   s.successCount,
+		FailureCount:   s.failureCount,
+		TotalTokens:    s.totalTokens,
+		APIs:           make(map[string]APISnapshot, len(s.apis)),
+		RequestsByDay:  make(map[string]int64, len(s.requestsByDay)),
+		RequestsByHour: make(map[string]int64, len(s.requestsByHour)),
+		TokensByDay:    make(map[string]int64, len(s.tokensByDay)),
+		TokensByHour:   make(map[string]int64, len(s.tokensByHour)),
+	}
 
-	result.APIs = make(map[string]APISnapshot, len(s.apis))
 	for apiName, stats := range s.apis {
 		apiSnapshot := APISnapshot{
 			TotalRequests: stats.TotalRequests,
@@ -259,31 +292,23 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 		result.APIs[apiName] = apiSnapshot
 	}
 
-	result.RequestsByDay = make(map[string]int64, len(s.requestsByDay))
 	for k, v := range s.requestsByDay {
 		result.RequestsByDay[k] = v
 	}
-
-	result.RequestsByHour = make(map[string]int64, len(s.requestsByHour))
 	for hour, v := range s.requestsByHour {
-		key := formatHour(hour)
-		result.RequestsByHour[key] = v
+		result.RequestsByHour[formatHour(hour)] = v
 	}
-
-	result.TokensByDay = make(map[string]int64, len(s.tokensByDay))
 	for k, v := range s.tokensByDay {
 		result.TokensByDay[k] = v
 	}
-
-	result.TokensByHour = make(map[string]int64, len(s.tokensByHour))
 	for hour, v := range s.tokensByHour {
-		key := formatHour(hour)
-		result.TokensByHour[key] = v
+		result.TokensByHour[formatHour(hour)] = v
 	}
 
 	return result
 }
 
+// MergeResult reports how many imported request details were added or skipped.
 type MergeResult struct {
 	Added   int64 `json:"added"`
 	Skipped int64 `json:"skipped"`
@@ -295,6 +320,15 @@ func (s *RequestStatistics) MergeSnapshot(snapshot StatisticsSnapshot) MergeResu
 	result := MergeResult{}
 	if s == nil {
 		return result
+	}
+
+	if repo := s.repository(); repo != nil {
+		merged, err := repo.ImportSnapshot(context.Background(), snapshot)
+		if err != nil {
+			log.WithError(err).Warn("usage: failed to import snapshot into repository")
+			return MergeResult{}
+		}
+		return merged
 	}
 
 	s.mu.Lock()
@@ -316,37 +350,18 @@ func (s *RequestStatistics) MergeSnapshot(snapshot StatisticsSnapshot) MergeResu
 	}
 
 	for apiName, apiSnapshot := range snapshot.APIs {
-		apiName = strings.TrimSpace(apiName)
-		if apiName == "" {
-			continue
-		}
-		stats, ok := s.apis[apiName]
-		if !ok || stats == nil {
-			stats = &apiStats{Models: make(map[string]*modelStats)}
-			s.apis[apiName] = stats
-		} else if stats.Models == nil {
-			stats.Models = make(map[string]*modelStats)
-		}
 		for modelName, modelSnapshot := range apiSnapshot.Models {
-			modelName = strings.TrimSpace(modelName)
-			if modelName == "" {
-				modelName = "unknown"
-			}
 			for _, detail := range modelSnapshot.Details {
-				detail.Tokens = normaliseTokenStats(detail.Tokens)
-				if detail.LatencyMs < 0 {
-					detail.LatencyMs = 0
+				event, ok := ImportedUsageEvent(apiName, modelName, detail)
+				if !ok {
+					continue
 				}
-				if detail.Timestamp.IsZero() {
-					detail.Timestamp = time.Now()
-				}
-				key := dedupKey(apiName, modelName, detail)
-				if _, exists := seen[key]; exists {
+				if _, exists := seen[event.DedupKey]; exists {
 					result.Skipped++
 					continue
 				}
-				seen[key] = struct{}{}
-				s.recordImported(apiName, modelName, stats, detail)
+				seen[event.DedupKey] = struct{}{}
+				s.recordUsageEvent(event)
 				result.Added++
 			}
 		}
@@ -355,51 +370,11 @@ func (s *RequestStatistics) MergeSnapshot(snapshot StatisticsSnapshot) MergeResu
 	return result
 }
 
-func (s *RequestStatistics) recordImported(apiName, modelName string, stats *apiStats, detail RequestDetail) {
-	totalTokens := detail.Tokens.TotalTokens
-	if totalTokens < 0 {
-		totalTokens = 0
-	}
-
-	s.totalRequests++
-	if detail.Failed {
-		s.failureCount++
-	} else {
-		s.successCount++
-	}
-	s.totalTokens += totalTokens
-
-	s.updateAPIStats(stats, modelName, detail)
-
-	dayKey := detail.Timestamp.Format("2006-01-02")
-	hourKey := detail.Timestamp.Hour()
-
-	s.requestsByDay[dayKey]++
-	s.requestsByHour[hourKey]++
-	s.tokensByDay[dayKey] += totalTokens
-	s.tokensByHour[hourKey] += totalTokens
-}
-
 func dedupKey(apiName, modelName string, detail RequestDetail) string {
-	timestamp := detail.Timestamp.UTC().Format(time.RFC3339Nano)
-	tokens := normaliseTokenStats(detail.Tokens)
-	return fmt.Sprintf(
-		"%s|%s|%s|%s|%s|%t|%d|%d|%d|%d|%d",
-		apiName,
-		modelName,
-		timestamp,
-		detail.Source,
-		detail.AuthIndex,
-		detail.Failed,
-		tokens.InputTokens,
-		tokens.OutputTokens,
-		tokens.ReasoningTokens,
-		tokens.CachedTokens,
-		tokens.TotalTokens,
-	)
+	return buildDedupKey(apiName, modelName, detail.Timestamp, detail.Source, detail.AuthIndex, detail.Failed, detail.Tokens)
 }
 
-func resolveAPIIdentifier(ctx context.Context, record coreusage.Record) string {
+func resolveRequestIdentity(ctx context.Context) (string, string) {
 	if ctx != nil {
 		if ginCtx, ok := ctx.Value("gin").(*gin.Context); ok && ginCtx != nil {
 			path := ginCtx.FullPath()
@@ -410,13 +385,15 @@ func resolveAPIIdentifier(ctx context.Context, record coreusage.Record) string {
 			if ginCtx.Request != nil {
 				method = ginCtx.Request.Method
 			}
-			if path != "" {
-				if method != "" {
-					return method + " " + path
-				}
-				return path
-			}
+			return normaliseRequestMethod(method), normaliseRequestPath(path)
 		}
+	}
+	return "", ""
+}
+
+func resolveAPIIdentifier(ctx context.Context, record coreusage.Record) string {
+	if method, path := resolveRequestIdentity(ctx); path != "" {
+		return formatRequestIdentity(method, path)
 	}
 	if record.Provider != "" {
 		return record.Provider

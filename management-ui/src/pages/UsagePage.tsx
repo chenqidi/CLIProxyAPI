@@ -12,11 +12,12 @@ import {
   Filler
 } from 'chart.js';
 import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
 import { LoadingSpinner } from '@/components/ui/LoadingSpinner';
 import { Select } from '@/components/ui/Select';
 import { useMediaQuery } from '@/hooks/useMediaQuery';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
-import { useThemeStore, useConfigStore } from '@/stores';
+import { getUsageTimeRangeHours, useThemeStore, useConfigStore } from '@/stores';
 import {
   StatCards,
   UsageChart,
@@ -66,11 +67,6 @@ const TIME_RANGE_OPTIONS: ReadonlyArray<{ value: UsageTimeRange; labelKey: strin
   { value: '24h', labelKey: 'usage_stats.range_24h' },
   { value: '7d', labelKey: 'usage_stats.range_7d' },
 ];
-const HOUR_WINDOW_BY_TIME_RANGE: Record<Exclude<UsageTimeRange, 'all'>, number> = {
-  '7h': 7,
-  '24h': 24,
-  '7d': 7 * 24
-};
 
 const isUsageTimeRange = (value: unknown): value is UsageTimeRange =>
   value === '7h' || value === '24h' || value === '7d' || value === 'all';
@@ -123,9 +119,14 @@ export function UsagePage() {
   const isDark = resolvedTheme === 'dark';
   const config = useConfigStore((state) => state.config);
 
-  // Data hook
+  const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
+  const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
+  const [showLegacyDetails, setShowLegacyDetails] = useState(false);
+
   const {
-    usage,
+    summary,
+    health,
+    events,
     loading,
     error,
     lastRefreshedAt,
@@ -134,6 +135,10 @@ export function UsagePage() {
     setSelectedPriceModel,
     setModelPrices,
     loadUsage,
+    legacyUsage,
+    legacyLoading,
+    legacyLoaded,
+    loadLegacyUsage,
     handleExport,
     handleImport,
     handleImportChange,
@@ -142,13 +147,9 @@ export function UsagePage() {
     importing,
     savingModelPrices,
     savingSelectedPriceModel
-  } = useUsageData();
+  } = useUsageData({ timeRange });
 
   useHeaderRefresh(loadUsage);
-
-  // Chart lines state
-  const [chartLines, setChartLines] = useState<string[]>(loadChartLines);
-  const [timeRange, setTimeRange] = useState<UsageTimeRange>(loadTimeRange);
 
   const timeRangeOptions = useMemo(
     () =>
@@ -158,17 +159,6 @@ export function UsagePage() {
       })),
     [t]
   );
-
-  const filteredUsage = useMemo(
-    () => (usage ? filterUsageByTimeRange(usage, timeRange) : null),
-    [usage, timeRange]
-  );
-  const hourWindowHours =
-    timeRange === 'all' ? undefined : HOUR_WINDOW_BY_TIME_RANGE[timeRange];
-
-  const handleChartLinesChange = useCallback((lines: string[]) => {
-    setChartLines(normalizeChartLines(lines));
-  }, []);
 
   useEffect(() => {
     try {
@@ -192,47 +182,76 @@ export function UsagePage() {
     }
   }, [timeRange]);
 
-  const nowMs = lastRefreshedAt?.getTime() ?? 0;
-
-  // Sparklines hook
   const {
     requestsSparkline,
     tokensSparkline,
     rpmSparkline,
     tpmSparkline,
-    costSparkline
-  } = useSparklines({ usage: filteredUsage, loading, nowMs });
+  } = useSparklines({ timeRange, loading });
 
-  // Chart data hook
   const {
     requestsPeriod,
     setRequestsPeriod,
     tokensPeriod,
     setTokensPeriod,
+    availableModels,
     requestsChartData,
     tokensChartData,
     requestsChartOptions,
     tokensChartOptions
-  } = useChartData({ usage: filteredUsage, chartLines, isDark, isMobile, hourWindowHours });
+  } = useChartData({ timeRange, chartLines, isDark, isMobile });
 
-  // Derived data
-  const modelNames = useMemo(() => getModelNamesFromUsage(usage), [usage]);
+  const handleChartLinesChange = useCallback((lines: string[]) => {
+    setChartLines(normalizeChartLines(lines));
+  }, []);
+
+  const legacyFilteredUsage = useMemo(
+    () => (legacyUsage ? filterUsageByTimeRange(legacyUsage, timeRange) : null),
+    [legacyUsage, timeRange]
+  );
+  const compatibilityHourWindowHours = useMemo(
+    () => getUsageTimeRangeHours(timeRange),
+    [timeRange]
+  );
+
+  const modelNames = useMemo(
+    () =>
+      Array.from(
+        new Set([
+          ...availableModels,
+          ...getModelNamesFromUsage(legacyFilteredUsage),
+          ...Object.keys(modelPrices),
+          selectedPriceModel,
+        ])
+      )
+        .filter((name) => name.trim() !== '')
+        .sort((left, right) => left.localeCompare(right)),
+    [availableModels, legacyFilteredUsage, modelPrices, selectedPriceModel]
+  );
+
   const apiStats = useMemo(
-    () => getApiStats(filteredUsage, modelPrices),
-    [filteredUsage, modelPrices]
+    () => getApiStats(legacyFilteredUsage, modelPrices),
+    [legacyFilteredUsage, modelPrices]
   );
   const modelStats = useMemo(
-    () => getModelStats(filteredUsage, modelPrices),
-    [filteredUsage, modelPrices]
+    () => getModelStats(legacyFilteredUsage, modelPrices),
+    [legacyFilteredUsage, modelPrices]
   );
-  const hasPrices = useMemo(
-    () => hasAnyResolvableModelPrice(filteredUsage, modelPrices),
-    [filteredUsage, modelPrices]
+  const legacyHasPrices = useMemo(
+    () => hasAnyResolvableModelPrice(legacyFilteredUsage, modelPrices),
+    [legacyFilteredUsage, modelPrices]
   );
+
+  const handleLoadLegacyDetails = useCallback(async () => {
+    setShowLegacyDetails(true);
+    if (!legacyLoaded) {
+      await loadLegacyUsage();
+    }
+  }, [legacyLoaded, loadLegacyUsage]);
 
   return (
     <div className={styles.container}>
-      {loading && !usage && (
+      {loading && !summary && (
         <div className={styles.loadingOverlay} aria-busy="true">
           <div className={styles.loadingOverlayContent}>
             <LoadingSpinner size={28} className={styles.loadingOverlaySpinner} />
@@ -298,22 +317,17 @@ export function UsagePage() {
 
       {error && <div className={styles.errorBox}>{error}</div>}
 
-      {/* Stats Overview Cards */}
       <StatCards
-        usage={filteredUsage}
+        summary={summary}
         loading={loading}
-        modelPrices={modelPrices}
-        nowMs={nowMs}
         sparklines={{
           requests: requestsSparkline,
           tokens: tokensSparkline,
           rpm: rpmSparkline,
           tpm: tpmSparkline,
-          cost: costSparkline
         }}
       />
 
-      {/* Chart Line Selection */}
       <ChartLineSelector
         chartLines={chartLines}
         modelNames={modelNames}
@@ -321,10 +335,8 @@ export function UsagePage() {
         onChange={handleChartLinesChange}
       />
 
-      {/* Service Health */}
-      <ServiceHealthCard usage={usage} loading={loading} />
+      <ServiceHealthCard health={health} loading={loading} />
 
-      {/* Charts Grid */}
       <div className={styles.chartsGrid}>
         <UsageChart
           title={t('usage_stats.requests_trend')}
@@ -348,33 +360,8 @@ export function UsagePage() {
         />
       </div>
 
-      {/* Token Breakdown Chart */}
-      <TokenBreakdownChart
-        usage={filteredUsage}
-        loading={loading}
-        isDark={isDark}
-        isMobile={isMobile}
-        hourWindowHours={hourWindowHours}
-      />
-
-      {/* Cost Trend Chart */}
-      <CostTrendChart
-        usage={filteredUsage}
-        loading={loading}
-        isDark={isDark}
-        isMobile={isMobile}
-        modelPrices={modelPrices}
-        hourWindowHours={hourWindowHours}
-      />
-
-      {/* Details Grid */}
-      <div className={styles.detailsGrid}>
-        <ApiDetailsCard apiStats={apiStats} loading={loading} hasPrices={hasPrices} />
-        <ModelStatsCard modelStats={modelStats} loading={loading} hasPrices={hasPrices} />
-      </div>
-
       <RequestEventsDetailsCard
-        usage={filteredUsage}
+        events={events}
         loading={loading}
         geminiKeys={config?.geminiApiKeys || []}
         claudeConfigs={config?.claudeApiKeys || []}
@@ -383,18 +370,82 @@ export function UsagePage() {
         openaiProviders={config?.openaiCompatibility || []}
       />
 
-      {/* Credential Stats */}
-      <CredentialStatsCard
-        usage={filteredUsage}
-        loading={loading}
-        geminiKeys={config?.geminiApiKeys || []}
-        claudeConfigs={config?.claudeApiKeys || []}
-        codexConfigs={config?.codexApiKeys || []}
-        vertexConfigs={config?.vertexApiKeys || []}
-        openaiProviders={config?.openaiCompatibility || []}
-      />
+      {showLegacyDetails ? (
+        <>
+          <Card
+            title={t('usage_stats.legacy_details_title')}
+            extra={
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void loadLegacyUsage().catch(() => {})}
+                loading={legacyLoading}
+              >
+                {t('usage_stats.legacy_details_refresh')}
+              </Button>
+            }
+          >
+            <div className={styles.hint}>{t('usage_stats.legacy_details_note')}</div>
+          </Card>
 
-      {/* Price Settings */}
+          {!legacyLoaded && legacyLoading ? (
+            <Card title={t('usage_stats.legacy_details_title')}>
+              <div className={styles.hint}>{t('common.loading')}</div>
+            </Card>
+          ) : (
+            <>
+              <TokenBreakdownChart
+                usage={legacyFilteredUsage}
+                loading={legacyLoading}
+                isDark={isDark}
+                isMobile={isMobile}
+                hourWindowHours={compatibilityHourWindowHours}
+              />
+
+              <CostTrendChart
+                usage={legacyFilteredUsage}
+                loading={legacyLoading}
+                isDark={isDark}
+                isMobile={isMobile}
+                modelPrices={modelPrices}
+                hourWindowHours={compatibilityHourWindowHours}
+              />
+
+              <div className={styles.detailsGrid}>
+                <ApiDetailsCard apiStats={apiStats} loading={legacyLoading} hasPrices={legacyHasPrices} />
+                <ModelStatsCard modelStats={modelStats} loading={legacyLoading} hasPrices={legacyHasPrices} />
+              </div>
+
+              <CredentialStatsCard
+                usage={legacyFilteredUsage}
+                loading={legacyLoading}
+                geminiKeys={config?.geminiApiKeys || []}
+                claudeConfigs={config?.claudeApiKeys || []}
+                codexConfigs={config?.codexApiKeys || []}
+                vertexConfigs={config?.vertexApiKeys || []}
+                openaiProviders={config?.openaiCompatibility || []}
+              />
+            </>
+          )}
+        </>
+      ) : (
+        <Card
+          title={t('usage_stats.legacy_details_title')}
+          extra={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => void handleLoadLegacyDetails().catch(() => {})}
+              loading={legacyLoading}
+            >
+              {t('usage_stats.legacy_details_load')}
+            </Button>
+          }
+        >
+          <div className={styles.hint}>{t('usage_stats.legacy_details_desc')}</div>
+        </Card>
+      )}
+
       <PriceSettingsCard
         modelNames={modelNames}
         selectedModel={selectedPriceModel}

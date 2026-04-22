@@ -21,9 +21,12 @@ import (
 )
 
 const (
-	DefaultPanelGitHubRepository = "https://github.com/router-for-me/CLIProxyAPI/tree/main/management-ui"
-	DefaultPprofAddr             = "127.0.0.1:8316"
-	DefaultUsagePriceModel       = "gpt-5.4"
+	DefaultPanelGitHubRepository          = "https://github.com/router-for-me/CLIProxyAPI/tree/main/management-ui"
+	DefaultPprofAddr                      = "127.0.0.1:8316"
+	DefaultUsagePriceModel                = "gpt-5.4"
+	DefaultUsageStatisticsRetentionDays   = 30
+	DefaultUsageStatisticsBatchSize       = 128
+	DefaultUsageStatisticsFlushIntervalMS = 1000
 )
 
 // Config represents the application's configuration, loaded from a YAML file.
@@ -64,8 +67,11 @@ type Config struct {
 	// When exceeded, the oldest error log files are deleted. Default is 10. Set to 0 to disable cleanup.
 	ErrorLogsMaxFiles int `yaml:"error-logs-max-files" json:"error-logs-max-files"`
 
-	// UsageStatisticsEnabled toggles in-memory usage aggregation; when false, usage data is discarded.
+	// UsageStatisticsEnabled toggles usage statistics recording; when false, new usage data is discarded.
 	UsageStatisticsEnabled bool `yaml:"usage-statistics-enabled" json:"usage-statistics-enabled"`
+
+	// UsageStatistics configures the SQLite-backed usage statistics store.
+	UsageStatistics UsageStatisticsConfig `yaml:"usage-statistics,omitempty" json:"usage-statistics,omitempty"`
 
 	// UsageModelPrices stores server-side overrides for usage cost calculation.
 	// Built-in default prices remain available in the management UI; entries here only
@@ -216,6 +222,14 @@ type RoutingConfig struct {
 	// Strategy selects the credential selection strategy.
 	// Supported values: "round-robin" (default), "fill-first".
 	Strategy string `yaml:"strategy,omitempty" json:"strategy,omitempty"`
+}
+
+// UsageStatisticsConfig defines the SQLite-backed usage statistics backend.
+type UsageStatisticsConfig struct {
+	SQLitePath      string `yaml:"sqlite-path,omitempty" json:"sqlite-path,omitempty"`
+	RetentionDays   int    `yaml:"retention-days,omitempty" json:"retention-days,omitempty"`
+	BatchSize       int    `yaml:"batch-size,omitempty" json:"batch-size,omitempty"`
+	FlushIntervalMs int    `yaml:"flush-interval-ms,omitempty" json:"flush-interval-ms,omitempty"`
 }
 
 // UsageModelPrice defines the token pricing (USD / 1M tokens) used by the
@@ -595,6 +609,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	cfg.LogsMaxTotalSizeMB = 0
 	cfg.ErrorLogsMaxFiles = 10
 	cfg.UsageStatisticsEnabled = false
+	cfg.UsageStatistics.RetentionDays = DefaultUsageStatisticsRetentionDays
+	cfg.UsageStatistics.BatchSize = DefaultUsageStatisticsBatchSize
+	cfg.UsageStatistics.FlushIntervalMs = DefaultUsageStatisticsFlushIntervalMS
 	cfg.DisableCooling = false
 	cfg.Pprof.Enable = false
 	cfg.Pprof.Addr = DefaultPprofAddr
@@ -684,6 +701,9 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 	// Normalize OAuth provider model exclusion map.
 	cfg.OAuthExcludedModels = NormalizeOAuthExcludedModels(cfg.OAuthExcludedModels)
 
+	// Normalize usage statistics storage settings.
+	cfg.NormalizeUsageStatisticsConfig()
+
 	// Normalize usage statistics model price overrides.
 	cfg.UsageModelPrices = NormalizeUsageModelPrices(cfg.UsageModelPrices)
 
@@ -713,6 +733,23 @@ func LoadConfigOptional(configFile string, optional bool) (*Config, error) {
 
 	// Return the populated configuration struct.
 	return &cfg, nil
+}
+
+// NormalizeUsageStatisticsConfig sanitizes the SQLite-backed usage statistics settings.
+func (cfg *Config) NormalizeUsageStatisticsConfig() {
+	if cfg == nil {
+		return
+	}
+	cfg.UsageStatistics.SQLitePath = strings.TrimSpace(cfg.UsageStatistics.SQLitePath)
+	if cfg.UsageStatistics.RetentionDays <= 0 {
+		cfg.UsageStatistics.RetentionDays = DefaultUsageStatisticsRetentionDays
+	}
+	if cfg.UsageStatistics.BatchSize <= 0 {
+		cfg.UsageStatistics.BatchSize = DefaultUsageStatisticsBatchSize
+	}
+	if cfg.UsageStatistics.FlushIntervalMs <= 0 {
+		cfg.UsageStatistics.FlushIntervalMs = DefaultUsageStatisticsFlushIntervalMS
+	}
 }
 
 // SanitizePayloadRules validates raw JSON payload rule params and drops invalid rules.

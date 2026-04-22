@@ -47,9 +47,9 @@ export interface ModelMappingDiagramRef {
   refreshLayout: () => void;
 }
 
-export const ModelMappingDiagram = forwardRef<ModelMappingDiagramRef, ModelMappingDiagramProps>(function ModelMappingDiagram({ 
-  modelAlias, 
-  allProviderModels = {}, 
+export const ModelMappingDiagram = forwardRef<ModelMappingDiagramRef, ModelMappingDiagramProps>(function ModelMappingDiagram({
+  modelAlias,
+  allProviderModels = {},
   onUpdate,
   onDeleteLink,
   onToggleFork,
@@ -69,7 +69,7 @@ export const ModelMappingDiagram = forwardRef<ModelMappingDiagramRef, ModelMappi
       !window.matchMedia('(any-pointer: fine)').matches
     );
   }, []);
-  
+
   const containerRef = useRef<HTMLDivElement>(null);
   const [lines, setLines] = useState<DiagramLine[]>([]);
   const [draggedSource, setDraggedSource] = useState<SourceNode | null>(null);
@@ -236,21 +236,21 @@ export const ModelMappingDiagram = forwardRef<ModelMappingDiagramRef, ModelMappi
       // Source → Alias: one line per alias
       sources.forEach((source) => {
         if (!source.aliases || source.aliases.length === 0) return;
-        
+
         source.aliases.forEach((aliasEntry) => {
           const sourceEl = sourceRefs.current.get(source.id);
           const aliasEl = aliasRefs.current.get(aliasEntry.alias);
           if (!sourceEl || !aliasEl) return;
-          
+
           const sourceRect = sourceEl.getBoundingClientRect();
           const aliasRect = aliasEl.getBoundingClientRect();
-          
+
           // Calculate coordinates relative to the container
           const x1 = sourceRect.right - containerRect.left;
           const y1 = sourceRect.top + sourceRect.height / 2 - containerRect.top;
           const x2 = aliasRect.left - containerRect.left;
           const y2 = aliasRect.top + aliasRect.height / 2 - containerRect.top;
-          
+
           newLines.push({
             id: `${source.id}-${aliasEntry.alias}`,
             path: bezier(x1, y1, x2, y2),

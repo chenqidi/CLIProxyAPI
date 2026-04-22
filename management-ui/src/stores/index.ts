@@ -11,4 +11,14 @@ export { useModelsStore } from './useModelsStore';
 export { useQuotaStore } from './useQuotaStore';
 export { useOpenAIEditDraftStore } from './useOpenAIEditDraftStore';
 export { useClaudeEditDraftStore } from './useClaudeEditDraftStore';
-export { useUsageStatsStore, USAGE_STATS_STALE_TIME_MS } from './useUsageStatsStore';
+export { useUsageStatusStore, USAGE_STATUS_STALE_TIME_MS } from './useUsageStatusStore';
+export {
+  useUsageDashboardStore,
+  USAGE_DASHBOARD_STALE_TIME_MS,
+  buildUsageRangeQuery,
+  getUsageTimeRangeHours,
+  buildUsageSummaryCacheKey,
+  buildUsageHealthCacheKey,
+  buildUsageChartCacheKey,
+  buildUsageEventsCacheKey
+} from './useUsageDashboardStore';

@@ -42,6 +42,7 @@ type Handler struct {
 	failedAttempts      map[string]*attemptInfo // keyed by client IP
 	authManager         *coreauth.Manager
 	usageStats          *usage.RequestStatistics
+	usageQueryService   *usage.QueryService
 	tokenStore          coreauth.Store
 	localPassword       string
 	allowRemoteOverride bool
@@ -61,6 +62,7 @@ func NewHandler(cfg *config.Config, configFilePath string, manager *coreauth.Man
 		failedAttempts:      make(map[string]*attemptInfo),
 		authManager:         manager,
 		usageStats:          usage.GetRequestStatistics(),
+		usageQueryService:   usage.NewQueryService(usage.GetRequestStatistics()),
 		tokenStore:          sdkAuth.GetTokenStore(),
 		allowRemoteOverride: envSecret != "",
 		envSecret:           envSecret,
@@ -111,7 +113,13 @@ func (h *Handler) SetConfig(cfg *config.Config) { h.cfg = cfg }
 func (h *Handler) SetAuthManager(manager *coreauth.Manager) { h.authManager = manager }
 
 // SetUsageStatistics allows replacing the usage statistics reference.
-func (h *Handler) SetUsageStatistics(stats *usage.RequestStatistics) { h.usageStats = stats }
+func (h *Handler) SetUsageStatistics(stats *usage.RequestStatistics) {
+	h.usageStats = stats
+	h.usageQueryService = usage.NewQueryService(stats)
+}
+
+// SetUsageQueryService allows overriding the lightweight usage query service.
+func (h *Handler) SetUsageQueryService(service *usage.QueryService) { h.usageQueryService = service }
 
 // SetLocalPassword configures the runtime-local password accepted for localhost requests.
 func (h *Handler) SetLocalPassword(password string) { h.localPassword = password }

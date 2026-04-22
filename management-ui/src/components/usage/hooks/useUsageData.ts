@@ -1,14 +1,28 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { USAGE_STATS_STALE_TIME_MS, useConfigStore, useNotificationStore, useUsageStatsStore } from '@/stores';
+import {
+  buildUsageEventsCacheKey,
+  buildUsageHealthCacheKey,
+  buildUsageSummaryCacheKey,
+  getUsageTimeRangeHours,
+  USAGE_DASHBOARD_STALE_TIME_MS,
+  useAuthStore,
+  useConfigStore,
+  useNotificationStore,
+  useUsageDashboardStore,
+} from '@/stores';
+import type { UsageEventsPageData, UsageHealthData, UsageSummaryData } from '@/services/api';
 import { usageApi } from '@/services/api/usage';
 import { downloadBlob } from '@/utils/download';
 import {
   buildModelPriceOverrides,
   mergeModelPricesWithDefaults,
   normalizeUsagePriceSelectedModel,
-  type ModelPrice
+  type ModelPrice,
+  type UsageTimeRange,
 } from '@/utils/usage';
+
+const DEFAULT_EVENTS_PAGE_SIZE = 500;
 
 export interface UsagePayload {
   total_requests?: number;
@@ -19,8 +33,14 @@ export interface UsagePayload {
   [key: string]: unknown;
 }
 
+export interface UseUsageDataOptions {
+  timeRange: UsageTimeRange;
+}
+
 export interface UseUsageDataReturn {
-  usage: UsagePayload | null;
+  summary: UsageSummaryData | null;
+  health: UsageHealthData | null;
+  events: UsageEventsPageData | null;
   loading: boolean;
   error: string;
   lastRefreshedAt: Date | null;
@@ -32,6 +52,10 @@ export interface UseUsageDataReturn {
     options?: { action?: 'save' | 'delete' }
   ) => Promise<boolean>;
   loadUsage: () => Promise<void>;
+  legacyUsage: UsagePayload | null;
+  legacyLoading: boolean;
+  legacyLoaded: boolean;
+  loadLegacyUsage: () => Promise<void>;
   handleExport: () => Promise<void>;
   handleImport: () => void;
   handleImportChange: (event: React.ChangeEvent<HTMLInputElement>) => Promise<void>;
@@ -42,23 +66,43 @@ export interface UseUsageDataReturn {
   savingSelectedPriceModel: boolean;
 }
 
-export function useUsageData(): UseUsageDataReturn {
+export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
+  const { timeRange } = options;
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
-  const usageSnapshot = useUsageStatsStore((state) => state.usage);
-  const loading = useUsageStatsStore((state) => state.loading);
-  const storeError = useUsageStatsStore((state) => state.error);
-  const lastRefreshedAtTs = useUsageStatsStore((state) => state.lastRefreshedAt);
-  const loadUsageStats = useUsageStatsStore((state) => state.loadUsageStats);
+  const summaryKey = useMemo(() => buildUsageSummaryCacheKey(timeRange), [timeRange]);
+  const healthKey = useMemo(() => buildUsageHealthCacheKey(), []);
+  const eventsKey = useMemo(
+    () => buildUsageEventsCacheKey({ range: timeRange, page: 1, pageSize: DEFAULT_EVENTS_PAGE_SIZE }),
+    [timeRange]
+  );
+
+  const summary = useUsageDashboardStore((state) => state.summaryCache[summaryKey]?.data ?? null);
+  const health = useUsageDashboardStore((state) => state.healthCache[healthKey]?.data ?? null);
+  const events = useUsageDashboardStore((state) => state.eventsCache[eventsKey]?.data ?? null);
+  const loadUsageSummary = useUsageDashboardStore((state) => state.loadUsageSummary);
+  const loadUsageHealth = useUsageDashboardStore((state) => state.loadUsageHealth);
+  const loadUsageChart = useUsageDashboardStore((state) => state.loadUsageChart);
+  const loadUsageEvents = useUsageDashboardStore((state) => state.loadUsageEvents);
+  const authScopeKey = useAuthStore((state) => `${state.apiBase}::${state.managementKey}`);
+
   const configModelPrices = useConfigStore((state) => state.config?.usageModelPrices);
   const configSelectedPriceModel = useConfigStore((state) => state.config?.usagePriceSelectedModel);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
 
+  const [loading, setLoading] = useState(() => summary === null || health === null || events === null);
+  const [error, setError] = useState('');
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [exporting, setExporting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [savingModelPrices, setSavingModelPrices] = useState(false);
   const [savingSelectedPriceModel, setSavingSelectedPriceModel] = useState(false);
+  const [legacyUsage, setLegacyUsage] = useState<UsagePayload | null>(null);
+  const [legacyLoading, setLegacyLoading] = useState(false);
+  const [legacyLoaded, setLegacyLoaded] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
+  const legacyRequestTokenRef = useRef(0);
+
   const modelPrices = useMemo(
     () => mergeModelPricesWithDefaults(configModelPrices ?? {}),
     [configModelPrices]
@@ -68,13 +112,97 @@ export function useUsageData(): UseUsageDataReturn {
     [configSelectedPriceModel]
   );
 
+  const loadDashboardData = useCallback(async (force: boolean) => {
+    setLoading(true);
+    setError('');
+    try {
+      await Promise.all([
+        loadUsageSummary(timeRange, { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }),
+        loadUsageHealth({ force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }),
+        loadUsageEvents(
+          { range: timeRange, page: 1, pageSize: DEFAULT_EVENTS_PAGE_SIZE },
+          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
+        ),
+        loadUsageChart(
+          {
+            range: timeRange,
+            period: 'hour',
+            metric: 'requests',
+            hours: getUsageTimeRangeHours(timeRange),
+          },
+          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
+        ),
+        loadUsageChart(
+          {
+            range: timeRange,
+            period: 'hour',
+            metric: 'tokens',
+            hours: getUsageTimeRangeHours(timeRange),
+          },
+          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
+        ),
+        loadUsageChart(
+          {
+            range: timeRange,
+            period: 'day',
+            metric: 'requests',
+          },
+          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
+        ),
+        loadUsageChart(
+          {
+            range: timeRange,
+            period: 'day',
+            metric: 'tokens',
+          },
+          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
+        ),
+      ]);
+      setLastRefreshedAt(new Date());
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '';
+      setError(message || t('usage_stats.loading_error'));
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [loadUsageChart, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
+
   const loadUsage = useCallback(async () => {
-    await loadUsageStats({ force: true, staleTimeMs: USAGE_STATS_STALE_TIME_MS });
-  }, [loadUsageStats]);
+    await loadDashboardData(true);
+  }, [loadDashboardData]);
 
   useEffect(() => {
-    void loadUsageStats({ staleTimeMs: USAGE_STATS_STALE_TIME_MS }).catch(() => {});
-  }, [loadUsageStats]);
+    void loadDashboardData(false).catch(() => {});
+  }, [loadDashboardData]);
+
+  useEffect(() => {
+    legacyRequestTokenRef.current += 1;
+    setLegacyUsage(null);
+    setLegacyLoaded(false);
+    setLegacyLoading(false);
+  }, [authScopeKey]);
+
+  const loadLegacyUsage = useCallback(async () => {
+    const requestToken = legacyRequestTokenRef.current + 1;
+    legacyRequestTokenRef.current = requestToken;
+    setLegacyLoading(true);
+    try {
+      const data = await usageApi.exportUsage();
+      if (legacyRequestTokenRef.current !== requestToken) {
+        return;
+      }
+      const rawUsage = data?.usage;
+      const nextUsage =
+        rawUsage && typeof rawUsage === 'object' ? (rawUsage as UsagePayload) : null;
+      setLegacyUsage(nextUsage);
+      setLegacyLoaded(true);
+    } finally {
+      if (legacyRequestTokenRef.current === requestToken) {
+        setLegacyLoading(false);
+      }
+    }
+  }, []);
 
   const handleExport = async () => {
     setExporting(true);
@@ -132,8 +260,12 @@ export function useUsageData(): UseUsageDataReturn {
         }),
         'success'
       );
+
       try {
-        await loadUsageStats({ force: true, staleTimeMs: USAGE_STATS_STALE_TIME_MS });
+        await loadDashboardData(true);
+        if (legacyLoaded) {
+          await loadLegacyUsage();
+        }
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '';
         showNotification(
@@ -203,12 +335,10 @@ export function useUsageData(): UseUsageDataReturn {
     }
   }, [showNotification, t, updateConfigValue]);
 
-  const usage = usageSnapshot as UsagePayload | null;
-  const error = storeError || '';
-  const lastRefreshedAt = lastRefreshedAtTs ? new Date(lastRefreshedAtTs) : null;
-
   return {
-    usage,
+    summary,
+    health,
+    events,
     loading,
     error,
     lastRefreshedAt,
@@ -217,6 +347,10 @@ export function useUsageData(): UseUsageDataReturn {
     setSelectedPriceModel: handleSetSelectedPriceModel,
     setModelPrices: handleSetModelPrices,
     loadUsage,
+    legacyUsage,
+    legacyLoading,
+    legacyLoaded,
+    loadLegacyUsage,
     handleExport,
     handleImport,
     handleImportChange,

@@ -37,6 +37,7 @@ task-history.md
 # Tooling metadata
 .vscode/*
 .worktrees/
+.planning/
 .codex/*
 .claude/*
 .gemini/*

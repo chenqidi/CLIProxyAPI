@@ -489,7 +489,11 @@ func (s *Server) registerManagementRoutes() {
 	mgmt := s.engine.Group("/v0/management")
 	mgmt.Use(s.managementAvailabilityMiddleware(), s.mgmt.Middleware())
 	{
-		mgmt.GET("/usage", s.mgmt.GetUsageStatistics)
+		mgmt.GET("/usage/summary", s.mgmt.GetUsageSummary)
+		mgmt.GET("/usage/status", s.mgmt.GetUsageStatus)
+		mgmt.GET("/usage/health", s.mgmt.GetUsageHealth)
+		mgmt.GET("/usage/charts", s.mgmt.GetUsageCharts)
+		mgmt.GET("/usage/events", s.mgmt.GetUsageEvents)
 		mgmt.GET("/usage/export", s.mgmt.ExportUsageStatistics)
 		mgmt.POST("/usage/import", s.mgmt.ImportUsageStatistics)
 		mgmt.GET("/config", s.mgmt.GetConfig)

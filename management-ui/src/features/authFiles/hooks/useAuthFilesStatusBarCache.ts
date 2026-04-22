@@ -1,25 +1,15 @@
 import { useMemo } from 'react';
 import type { AuthFileItem } from '@/types';
-import { calculateStatusBarData, normalizeAuthIndex, type UsageDetail } from '@/utils/usage';
+import { mergeStatusBarData, normalizeAuthIndex, type StatusBarData } from '@/utils/usage';
 
-export type AuthFileStatusBarData = ReturnType<typeof calculateStatusBarData>;
+export type AuthFileStatusBarData = ReturnType<typeof mergeStatusBarData>;
 
-export function useAuthFilesStatusBarCache(files: AuthFileItem[], usageDetails: UsageDetail[]) {
+export function useAuthFilesStatusBarCache(
+  files: AuthFileItem[],
+  statusByAuthIndex: Record<string, StatusBarData>
+) {
   return useMemo(() => {
     const cache = new Map<string, AuthFileStatusBarData>();
-
-    const usageDetailsByAuthIndex = new Map<string, UsageDetail[]>();
-    usageDetails.forEach((detail) => {
-      const authIndexKey = normalizeAuthIndex(detail.auth_index);
-      if (!authIndexKey) return;
-
-      const list = usageDetailsByAuthIndex.get(authIndexKey);
-      if (list) {
-        list.push(detail);
-      } else {
-        usageDetailsByAuthIndex.set(authIndexKey, [detail]);
-      }
-    });
 
     const uniqueAuthIndexKeys = new Set<string>();
     files.forEach((file) => {
@@ -30,12 +20,9 @@ export function useAuthFilesStatusBarCache(files: AuthFileItem[], usageDetails: 
     });
 
     uniqueAuthIndexKeys.forEach((authIndexKey) => {
-      cache.set(
-        authIndexKey,
-        calculateStatusBarData(usageDetailsByAuthIndex.get(authIndexKey) ?? [])
-      );
+      cache.set(authIndexKey, statusByAuthIndex[authIndexKey] ?? mergeStatusBarData([]));
     });
 
     return cache;
-  }, [files, usageDetails]);
+  }, [files, statusByAuthIndex]);
 }
