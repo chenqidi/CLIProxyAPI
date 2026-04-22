@@ -53,12 +53,6 @@ import { useAuthFilesPrefixProxyEditor } from '@/features/authFiles/hooks/useAut
 import { useAuthFilesStats } from '@/features/authFiles/hooks/useAuthFilesStats';
 import { useAuthFilesStatusBarCache } from '@/features/authFiles/hooks/useAuthFilesStatusBarCache';
 import {
-  hasCodexPrimaryWeeklyQuotaAvailable,
-  isCodexPrimaryWeeklyLimitReached,
-  isCodexQuotaManagedFile,
-  refreshCodexQuotaStates,
-} from '@/features/authFiles/codexQuotaBatch';
-import {
   isAuthFilesSortMode,
   readAuthFilesUiState,
   readPersistedAuthFilesCompactMode,
@@ -66,7 +60,7 @@ import {
   writePersistedAuthFilesCompactMode,
   type AuthFilesSortMode,
 } from '@/features/authFiles/uiState';
-import { useAuthStore, useConfigStore, useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
+import { useAuthStore, useConfigStore, useNotificationStore, useThemeStore } from '@/stores';
 import styles from './AuthFilesPage.module.scss';
 
 const easePower3Out = (progress: number) => 1 - (1 - progress) ** 4;
@@ -276,9 +270,6 @@ export function AuthFilesPage() {
   const [viewMode, setViewMode] = useState<'diagram' | 'list'>('list');
   const [sortMode, setSortMode] = useState<AuthFilesSortMode>('default');
   const [batchActionBarVisible, setBatchActionBarVisible] = useState(false);
-  const [codexQuotaActionLoading, setCodexQuotaActionLoading] = useState<
-    'disable' | 'enable' | null
-  >(null);
   const [uiStateHydrated, setUiStateHydrated] = useState(false);
   const floatingBatchActionsRef = useRef<HTMLDivElement>(null);
   const batchActionAnimationRef = useRef<AnimationPlaybackControlsWithThen | null>(null);
@@ -315,7 +306,6 @@ export function AuthFilesPage() {
   } = useAuthFilesData({ refreshKeyStats });
 
   const statusBarCache = useAuthFilesStatusBarCache(files, statusByAuthIndex);
-  const setCodexQuota = useQuotaStore((state) => state.setCodexQuota);
 
   const {
     excluded,
@@ -651,18 +641,6 @@ export function AuthFilesPage() {
     () => sorted.filter((file) => !isRuntimeOnlyAuthFile(file)),
     [sorted]
   );
-  const codexManagedFilteredItems = useMemo(
-    () => sorted.filter((file) => isCodexQuotaManagedFile(file)),
-    [sorted]
-  );
-  const codexQuotaDisableCandidates = useMemo(
-    () => codexManagedFilteredItems.filter((file) => !file.disabled),
-    [codexManagedFilteredItems]
-  );
-  const codexQuotaEnableCandidates = useMemo(
-    () => codexManagedFilteredItems.filter((file) => file.disabled),
-    [codexManagedFilteredItems]
-  );
   const selectedNames = useMemo(() => Array.from(selectedFiles), [selectedFiles]);
   const selectedHasStatusUpdating = useMemo(
     () => selectedNames.some((name) => statusUpdating[name] === true),
@@ -673,120 +651,6 @@ export function AuthFilesPage() {
     selectedNames.length === 0 ||
     batchStatusUpdating ||
     selectedHasStatusUpdating;
-  const showCodexQuotaBatchActions = quotaFilterType === 'codex';
-  const codexQuotaBatchButtonsDisabled =
-    disableControls || batchStatusUpdating || codexQuotaActionLoading !== null;
-
-  const refreshCodexQuotaTargets = useCallback(
-    async (targets: AuthFileItem[]) => {
-      if (targets.length === 0) {
-        return {
-          states: new Map(),
-          successCount: 0,
-          failedCount: 0,
-        };
-      }
-
-      setCodexQuota((prev) => {
-        const next = { ...prev };
-        targets.forEach((file) => {
-          next[file.name] = { status: 'loading', windows: [] };
-        });
-        return next;
-      });
-
-      const result = await refreshCodexQuotaStates(targets, t);
-
-      setCodexQuota((prev) => {
-        const next = { ...prev };
-        result.states.forEach((state, name) => {
-          next[name] = state;
-        });
-        return next;
-      });
-
-      return result;
-    },
-    [setCodexQuota, t]
-  );
-
-  const handleDisableWeeklyLimitedCodex = useCallback(async () => {
-    if (codexQuotaBatchButtonsDisabled) return;
-
-    const targets = codexQuotaDisableCandidates.filter((file) => !statusUpdating[file.name]);
-    if (targets.length === 0) {
-      showNotification(t('auth_files.codex_weekly_disable_none'), 'info');
-      return;
-    }
-
-    setCodexQuotaActionLoading('disable');
-    try {
-      const refreshed = await refreshCodexQuotaTargets(targets);
-      const eligibleNames = targets
-        .filter((file) => isCodexPrimaryWeeklyLimitReached(refreshed.states.get(file.name)))
-        .map((file) => file.name);
-
-      if (eligibleNames.length === 0) {
-        showNotification(t('auth_files.codex_weekly_disable_none'), 'info');
-        return;
-      }
-
-      await batchSetStatus(eligibleNames, false, {
-        success: (count) => t('auth_files.codex_weekly_disable_success', { count }),
-        partial: (success, failed) =>
-          t('auth_files.codex_weekly_disable_partial', { success, failed }),
-      });
-    } finally {
-      setCodexQuotaActionLoading(null);
-    }
-  }, [
-    batchSetStatus,
-    codexQuotaBatchButtonsDisabled,
-    codexQuotaDisableCandidates,
-    refreshCodexQuotaTargets,
-    showNotification,
-    statusUpdating,
-    t,
-  ]);
-
-  const handleEnableRecoveredCodex = useCallback(async () => {
-    if (codexQuotaBatchButtonsDisabled) return;
-
-    const targets = codexQuotaEnableCandidates.filter((file) => !statusUpdating[file.name]);
-    if (targets.length === 0) {
-      showNotification(t('auth_files.codex_weekly_enable_none'), 'info');
-      return;
-    }
-
-    setCodexQuotaActionLoading('enable');
-    try {
-      const refreshed = await refreshCodexQuotaTargets(targets);
-      const eligibleNames = targets
-        .filter((file) => hasCodexPrimaryWeeklyQuotaAvailable(refreshed.states.get(file.name)))
-        .map((file) => file.name);
-
-      if (eligibleNames.length === 0) {
-        showNotification(t('auth_files.codex_weekly_enable_none'), 'info');
-        return;
-      }
-
-      await batchSetStatus(eligibleNames, true, {
-        success: (count) => t('auth_files.codex_weekly_enable_success', { count }),
-        partial: (success, failed) =>
-          t('auth_files.codex_weekly_enable_partial', { success, failed }),
-      });
-    } finally {
-      setCodexQuotaActionLoading(null);
-    }
-  }, [
-    batchSetStatus,
-    codexQuotaBatchButtonsDisabled,
-    codexQuotaEnableCandidates,
-    refreshCodexQuotaTargets,
-    showNotification,
-    statusUpdating,
-    t,
-  ]);
 
   const copyTextWithNotification = useCallback(
     async (text: string) => {
@@ -1002,32 +866,6 @@ export function AuthFilesPage() {
             <Button variant="secondary" size="sm" onClick={handleHeaderRefresh} disabled={loading}>
               {t('common.refresh')}
             </Button>
-            {showCodexQuotaBatchActions && (
-              <>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void handleDisableWeeklyLimitedCodex()}
-                  disabled={
-                    codexQuotaBatchButtonsDisabled || codexQuotaDisableCandidates.length === 0
-                  }
-                  loading={codexQuotaActionLoading === 'disable'}
-                >
-                  {t('auth_files.codex_weekly_disable_button')}
-                </Button>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={() => void handleEnableRecoveredCodex()}
-                  disabled={
-                    codexQuotaBatchButtonsDisabled || codexQuotaEnableCandidates.length === 0
-                  }
-                  loading={codexQuotaActionLoading === 'enable'}
-                >
-                  {t('auth_files.codex_weekly_enable_button')}
-                </Button>
-              </>
-            )}
             <Button
               size="sm"
               onClick={handleUploadClick}
