@@ -46,6 +46,7 @@ type UsageSummary struct {
 	SuccessCount      int64   `json:"success_count"`
 	FailureCount      int64   `json:"failure_count"`
 	TotalTokens       int64   `json:"total_tokens"`
+	TotalCost         *float64 `json:"total_cost,omitempty"`
 	CachedTokens      int64   `json:"cached_tokens"`
 	ReasoningTokens   int64   `json:"reasoning_tokens"`
 	DistinctSources   int64   `json:"distinct_sources"`
@@ -226,6 +227,58 @@ func (s *QueryService) Summary(ctx context.Context, start, end *time.Time) (Usag
 		summary.TPM30m = float64(summary.TokensLast30m) / minutes
 	}
 	return summary, nil
+}
+
+// TokenTotalsByModel returns aggregated token totals grouped by model for the requested time window.
+func (s *QueryService) TokenTotalsByModel(ctx context.Context, start, end *time.Time) (map[string]TokenStats, error) {
+	repo, window, ok, err := s.repoAndWindow(ctx, start, end, time.Duration(s.RetentionDays())*24*time.Hour)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return map[string]TokenStats{}, nil
+	}
+
+	rows, err := repo.db.QueryContext(ctx, `SELECT
+		model,
+		COALESCE(SUM(input_tokens), 0),
+		COALESCE(SUM(output_tokens), 0),
+		COALESCE(SUM(reasoning_tokens), 0),
+		COALESCE(SUM(cached_tokens), 0),
+		COALESCE(SUM(total_tokens), 0)
+	FROM usage_events
+	WHERE requested_at_ns >= ? AND requested_at_ns <= ?
+	GROUP BY model`,
+		window.WindowStart.UnixNano(),
+		window.WindowEnd.UnixNano(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("usage query token totals by model: %w", err)
+	}
+	defer rows.Close()
+
+	totals := make(map[string]TokenStats)
+	for rows.Next() {
+		var (
+			model string
+			stats TokenStats
+		)
+		if err := rows.Scan(
+			&model,
+			&stats.InputTokens,
+			&stats.OutputTokens,
+			&stats.ReasoningTokens,
+			&stats.CachedTokens,
+			&stats.TotalTokens,
+		); err != nil {
+			return nil, fmt.Errorf("usage query token totals by model scan: %w", err)
+		}
+		totals[strings.TrimSpace(model)] = normaliseTokenStats(stats)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("usage query token totals by model iterate: %w", err)
+	}
+	return totals, nil
 }
 
 // Status returns service-wide and grouped status-bar data for the requested time window.

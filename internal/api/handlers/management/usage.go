@@ -45,6 +45,12 @@ func (h *Handler) GetUsageSummary(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("usage summary query failed: %v", err)})
 		return
 	}
+	totalCost, err := h.usageSummaryCost(c.Request.Context(), service, start, end)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("usage summary cost query failed: %v", err)})
+		return
+	}
+	summary.TotalCost = totalCost
 	c.JSON(http.StatusOK, summary)
 }
 

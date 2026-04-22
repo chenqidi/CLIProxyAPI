@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -136,6 +137,13 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 	}
 	if summary.TotalTokens != 48 {
 		t.Fatalf("summary total_tokens = %d, want 48", summary.TotalTokens)
+	}
+	if summary.TotalCost == nil {
+		t.Fatalf("summary total_cost = nil, want non-nil")
+	}
+	const wantTotalCost = 0.000325
+	if diff := math.Abs(*summary.TotalCost - wantTotalCost); diff > 1e-12 {
+		t.Fatalf("summary total_cost = %.12f, want %.12f (diff %.12f)", *summary.TotalCost, wantTotalCost, diff)
 	}
 	if summary.RetentionDays != 30 {
 		t.Fatalf("summary retention_days = %d, want 30", summary.RetentionDays)

@@ -9,7 +9,7 @@ import {
   Title,
   Tooltip,
   Legend,
-  Filler
+  Filler,
 } from 'chart.js';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -32,7 +32,7 @@ import {
   ServiceHealthCard,
   useUsageData,
   useSparklines,
-  useChartData
+  useChartData,
 } from '@/components/usage';
 import {
   getModelNamesFromUsage,
@@ -40,7 +40,7 @@ import {
   getModelStats,
   hasAnyResolvableModelPrice,
   filterUsageByTimeRange,
-  type UsageTimeRange
+  type UsageTimeRange,
 } from '@/utils/usage';
 import styles from './UsagePage.module.scss';
 
@@ -146,7 +146,7 @@ export function UsagePage() {
     exporting,
     importing,
     savingModelPrices,
-    savingSelectedPriceModel
+    savingSelectedPriceModel,
   } = useUsageData({ timeRange });
 
   useHeaderRefresh(loadUsage);
@@ -155,7 +155,7 @@ export function UsagePage() {
     () =>
       TIME_RANGE_OPTIONS.map((opt) => ({
         value: opt.value,
-        label: t(opt.labelKey)
+        label: t(opt.labelKey),
       })),
     [t]
   );
@@ -182,12 +182,8 @@ export function UsagePage() {
     }
   }, [timeRange]);
 
-  const {
-    requestsSparkline,
-    tokensSparkline,
-    rpmSparkline,
-    tpmSparkline,
-  } = useSparklines({ timeRange, loading });
+  const { costSparkline, requestsSparkline, tokensSparkline, rpmSparkline, tpmSparkline } =
+    useSparklines({ timeRange, loading });
 
   const {
     requestsPeriod,
@@ -198,7 +194,7 @@ export function UsagePage() {
     requestsChartData,
     tokensChartData,
     requestsChartOptions,
-    tokensChartOptions
+    tokensChartOptions,
   } = useChartData({ timeRange, chartLines, isDark, isMobile });
 
   const handleChartLinesChange = useCallback((lines: string[]) => {
@@ -321,6 +317,7 @@ export function UsagePage() {
         summary={summary}
         loading={loading}
         sparklines={{
+          cost: costSparkline,
           requests: requestsSparkline,
           tokens: tokensSparkline,
           rpm: rpmSparkline,
@@ -412,8 +409,16 @@ export function UsagePage() {
               />
 
               <div className={styles.detailsGrid}>
-                <ApiDetailsCard apiStats={apiStats} loading={legacyLoading} hasPrices={legacyHasPrices} />
-                <ModelStatsCard modelStats={modelStats} loading={legacyLoading} hasPrices={legacyHasPrices} />
+                <ApiDetailsCard
+                  apiStats={apiStats}
+                  loading={legacyLoading}
+                  hasPrices={legacyHasPrices}
+                />
+                <ModelStatsCard
+                  modelStats={modelStats}
+                  loading={legacyLoading}
+                  hasPrices={legacyHasPrices}
+                />
               </div>
 
               <CredentialStatsCard

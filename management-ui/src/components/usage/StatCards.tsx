@@ -2,12 +2,13 @@ import type { CSSProperties, ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Line } from 'react-chartjs-2';
 import {
+  IconDollarSign,
   IconDiamond,
   IconSatellite,
   IconTimer,
   IconTrendingUp,
 } from '@/components/ui/icons';
-import { formatCompactNumber, formatPerMinuteValue } from '@/utils/usage';
+import { formatCompactNumber, formatPerMinuteValue, formatUsd } from '@/utils/usage';
 import { sparklineOptions } from '@/utils/usage/chartConfig';
 import type { UsageSummaryData } from '@/services/api';
 import type { SparklineBundle } from './hooks/useSparklines';
@@ -29,6 +30,7 @@ export interface StatCardsProps {
   summary: UsageSummaryData | null;
   loading: boolean;
   sparklines: {
+    cost: SparklineBundle | null;
     requests: SparklineBundle | null;
     tokens: SparklineBundle | null;
     rpm: SparklineBundle | null;
@@ -60,7 +62,7 @@ export function StatCards({ summary, loading, sparklines }: StatCardsProps) {
           </span>
         </>
       ),
-      trend: sparklines.requests
+      trend: sparklines.requests,
     },
     {
       key: 'tokens',
@@ -73,14 +75,16 @@ export function StatCards({ summary, loading, sparklines }: StatCardsProps) {
       meta: (
         <>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.cached_tokens')}: {loading ? '-' : formatCompactNumber(summary?.cachedTokens ?? 0)}
+            {t('usage_stats.cached_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(summary?.cachedTokens ?? 0)}
           </span>
           <span className={styles.statMetaItem}>
-            {t('usage_stats.reasoning_tokens')}: {loading ? '-' : formatCompactNumber(summary?.reasoningTokens ?? 0)}
+            {t('usage_stats.reasoning_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(summary?.reasoningTokens ?? 0)}
           </span>
         </>
       ),
-      trend: sparklines.tokens
+      trend: sparklines.tokens,
     },
     {
       key: 'rpm',
@@ -92,10 +96,11 @@ export function StatCards({ summary, loading, sparklines }: StatCardsProps) {
       value: loading ? '-' : formatPerMinuteValue(summary?.rpm30m ?? 0),
       meta: (
         <span className={styles.statMetaItem}>
-          {t('usage_stats.total_requests')}: {loading ? '-' : (summary?.requestsLast30m ?? 0).toLocaleString()}
+          {t('usage_stats.total_requests')}:{' '}
+          {loading ? '-' : (summary?.requestsLast30m ?? 0).toLocaleString()}
         </span>
       ),
-      trend: sparklines.rpm
+      trend: sparklines.rpm,
     },
     {
       key: 'tpm',
@@ -107,11 +112,35 @@ export function StatCards({ summary, loading, sparklines }: StatCardsProps) {
       value: loading ? '-' : formatPerMinuteValue(summary?.tpm30m ?? 0),
       meta: (
         <span className={styles.statMetaItem}>
-          {t('usage_stats.total_tokens')}: {loading ? '-' : formatCompactNumber(summary?.tokensLast30m ?? 0)}
+          {t('usage_stats.total_tokens')}:{' '}
+          {loading ? '-' : formatCompactNumber(summary?.tokensLast30m ?? 0)}
         </span>
       ),
-      trend: sparklines.tpm
-    }
+      trend: sparklines.tpm,
+    },
+    {
+      key: 'cost',
+      label: t('usage_stats.total_cost'),
+      icon: <IconDollarSign size={16} />,
+      accent: '#f59e0b',
+      accentSoft: 'rgba(245, 158, 11, 0.18)',
+      accentBorder: 'rgba(245, 158, 11, 0.32)',
+      value: loading ? '-' : summary?.totalCost == null ? '--' : formatUsd(summary.totalCost),
+      meta: (
+        <>
+          <span className={styles.statMetaItem}>
+            {t('usage_stats.total_tokens')}:{' '}
+            {loading ? '-' : formatCompactNumber(summary?.totalTokens ?? 0)}
+          </span>
+          {!loading && summary?.totalCost == null && (
+            <span className={`${styles.statMetaItem} ${styles.statSubtle}`}>
+              {t('usage_stats.cost_need_price')}
+            </span>
+          )}
+        </>
+      ),
+      trend: sparklines.cost,
+    },
   ];
 
   return (
@@ -124,7 +153,7 @@ export function StatCards({ summary, loading, sparklines }: StatCardsProps) {
             {
               '--accent': card.accent,
               '--accent-soft': card.accentSoft,
-              '--accent-border': card.accentBorder
+              '--accent-border': card.accentBorder,
             } as CSSProperties
           }
         >
@@ -138,7 +167,11 @@ export function StatCards({ summary, loading, sparklines }: StatCardsProps) {
           {card.meta && <div className={styles.statMetaRow}>{card.meta}</div>}
           <div className={styles.statTrend}>
             {card.trend ? (
-              <Line className={styles.sparkline} data={card.trend.data} options={sparklineOptions} />
+              <Line
+                className={styles.sparkline}
+                data={card.trend.data}
+                options={sparklineOptions}
+              />
             ) : (
               <div className={styles.statTrendPlaceholder}></div>
             )}

@@ -80,6 +80,7 @@ interface UsageSummaryResponse extends TimeWindowResponse {
   success_count?: number;
   failure_count?: number;
   total_tokens?: number;
+  total_cost?: number | null;
   cached_tokens?: number;
   reasoning_tokens?: number;
   distinct_sources?: number;
@@ -156,6 +157,7 @@ export interface UsageSummaryData {
   successCount: number;
   failureCount: number;
   totalTokens: number;
+  totalCost: number | null;
   cachedTokens: number;
   reasoningTokens: number;
   distinctSources: number;
@@ -387,12 +389,15 @@ const adaptUsageStatusOverview = (value: unknown): UsageStatusOverview => {
 
 const adaptUsageSummary = (value: unknown): UsageSummaryData => {
   const record = isRecord(value) ? value : null;
+  const totalCostRaw = record?.total_cost;
   return {
     ...adaptTimeWindow(record),
     totalRequests: toCount(record?.total_requests),
     successCount: toCount(record?.success_count),
     failureCount: toCount(record?.failure_count),
     totalTokens: toCount(record?.total_tokens),
+    totalCost:
+      totalCostRaw === null || totalCostRaw === undefined ? null : toFiniteNumber(totalCostRaw),
     cachedTokens: toCount(record?.cached_tokens),
     reasoningTokens: toCount(record?.reasoning_tokens),
     distinctSources: toCount(record?.distinct_sources),
