@@ -48,6 +48,7 @@ task-history.md
 .agents/*
 .opencode/*
 .idea/*
+.beads/*
 .bmad/*
 _bmad/*
 _bmad-output/*
@@ -55,9 +56,3 @@ _bmad-output/*
 # macOS
 .DS_Store
 ._*
-
-# Opencode
-.beads/
-.opencode/
-.cli-proxy-api/
-.venv/

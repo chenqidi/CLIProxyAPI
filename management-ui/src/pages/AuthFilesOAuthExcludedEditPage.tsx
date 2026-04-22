@@ -26,9 +26,7 @@ const OAUTH_PROVIDER_PRESETS = [
   'antigravity',
   'claude',
   'codex',
-  'qwen',
   'kimi',
-  'iflow',
 ];
 
 const OAUTH_PROVIDER_EXCLUDES = new Set(['all', 'unknown', 'empty']);
@@ -93,7 +91,6 @@ export function AuthFilesOAuthExcludedEditPage() {
       const key = `auth_files.filter_${type}`;
       const translated = t(key);
       if (translated !== key) return translated;
-      if (type.toLowerCase() === 'iflow') return 'iFlow';
       return type.charAt(0).toUpperCase() + type.slice(1);
     },
     [t]

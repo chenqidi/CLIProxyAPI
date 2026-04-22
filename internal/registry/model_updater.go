@@ -163,32 +163,6 @@ var staticModelCatalogSections = []modelCatalogSection{
 		},
 	},
 	{
-		name:     "qwen",
-		provider: "qwen",
-		get: func(data *staticModelsJSON) []*ModelInfo {
-			if data == nil {
-				return nil
-			}
-			return data.Qwen
-		},
-		set: func(data *staticModelsJSON, models []*ModelInfo) {
-			data.Qwen = models
-		},
-	},
-	{
-		name:     "iflow",
-		provider: "iflow",
-		get: func(data *staticModelsJSON) []*ModelInfo {
-			if data == nil {
-				return nil
-			}
-			return data.IFlow
-		},
-		set: func(data *staticModelsJSON, models []*ModelInfo) {
-			data.IFlow = models
-		},
-	},
-	{
 		name:     "kimi",
 		provider: "kimi",
 		get: func(data *staticModelsJSON) []*ModelInfo {

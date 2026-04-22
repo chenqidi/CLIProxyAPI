@@ -10,10 +10,6 @@ import type {
 
 // Theme colors for type badges — 与 authFiles/constants.ts 保持同步
 export const TYPE_COLORS: Record<string, TypeColorSet> = {
-  qwen: {
-    light: { bg: '#ede5fd', text: '#5530c7' },
-    dark: { bg: '#36208a', text: '#b5a3f0' },
-  },
   gemini: {
     light: { bg: '#e3f2fd', text: '#1565c0' },
     dark: { bg: '#0d47a1', text: '#64b5f6' },
@@ -41,10 +37,6 @@ export const TYPE_COLORS: Record<string, TypeColorSet> = {
   antigravity: {
     light: { bg: '#e0f7fa', text: '#006064' },
     dark: { bg: '#004d40', text: '#80deea' },
-  },
-  iflow: {
-    light: { bg: '#f5e3fc', text: '#9025c8' },
-    dark: { bg: '#521490', text: '#d49cf5' },
   },
   vertex: {
     light: { bg: '#e4edfd', text: '#2b5fbc' },

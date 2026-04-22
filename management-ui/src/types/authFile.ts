@@ -4,7 +4,6 @@
  */
 
 export type AuthFileType =
-  | 'qwen'
   | 'kimi'
   | 'gemini'
   | 'gemini-cli'
@@ -12,7 +11,6 @@ export type AuthFileType =
   | 'claude'
   | 'codex'
   | 'antigravity'
-  | 'iflow'
   | 'vertex'
   | 'empty'
   | 'unknown';
