@@ -27,7 +27,7 @@ export type LoadDashboardDataOptions = {
 export type UsageDashboardChartQuery = {
   range: UsageTimeRange;
   period: 'hour' | 'day';
-  metric: 'requests' | 'tokens';
+  metric: 'requests' | 'tokens' | 'cost';
   hours?: number;
 };
 

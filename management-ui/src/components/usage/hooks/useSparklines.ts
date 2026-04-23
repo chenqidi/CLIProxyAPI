@@ -59,12 +59,27 @@ export function useSparklines({ timeRange, loading }: UseSparklinesOptions): Use
     () => buildUsageChartCacheKey({ range: timeRange, period: 'hour', metric: 'tokens', hours }),
     [hours, timeRange]
   );
+  const costKey = useMemo(
+    () => buildUsageChartCacheKey({ range: timeRange, period: 'hour', metric: 'cost', hours }),
+    [hours, timeRange]
+  );
 
   const requestsChart = useUsageDashboardStore((state) => state.chartCache[requestsKey]?.data ?? null);
   const tokensChart = useUsageDashboardStore((state) => state.chartCache[tokensKey]?.data ?? null);
+  const costChart = useUsageDashboardStore((state) => state.chartCache[costKey]?.data ?? null);
 
   const requestSeries = useMemo(() => aggregateChartData(requestsChart), [requestsChart]);
   const tokenSeries = useMemo(() => aggregateChartData(tokensChart), [tokensChart]);
+  const costSeries = useMemo(() => {
+    if (!costChart || Object.keys(costChart.dataByModel).length === 0) {
+      return { labels: [], data: [] };
+    }
+    const aggregated = aggregateChartData(costChart);
+    return {
+      labels: aggregated.labels,
+      data: aggregated.values,
+    };
+  }, [costChart]);
 
   const buildSparkline = useCallback(
     (
@@ -144,11 +159,16 @@ export function useSparklines({ timeRange, loading }: UseSparklinesOptions): Use
     [buildSparkline, tpmSeries]
   );
 
+  const costSparkline = useMemo(
+    () => buildSparkline(costSeries, '#f59e0b', 'rgba(245, 158, 11, 0.18)'),
+    [buildSparkline, costSeries]
+  );
+
   return {
     requestsSparkline,
     tokensSparkline,
     rpmSparkline,
     tpmSparkline,
-    costSparkline: null,
+    costSparkline,
   };
 }

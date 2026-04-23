@@ -104,15 +104,7 @@ func calculateUsageSummaryCostFromTotals(
 			continue
 		}
 		hasPrice = true
-
-		inputTokens := max(tokens.InputTokens, 0)
-		outputTokens := max(tokens.OutputTokens, 0)
-		cachedTokens := max(tokens.CachedTokens, 0)
-		promptTokens := max(inputTokens-cachedTokens, 0)
-
-		totalCost += (float64(promptTokens) / usageTokensPerPriceUnit) * price.Prompt
-		totalCost += (float64(cachedTokens) / usageTokensPerPriceUnit) * price.Cache
-		totalCost += (float64(outputTokens) / usageTokensPerPriceUnit) * price.Completion
+		totalCost += calculateUsageTokenCost(tokens, price)
 	}
 
 	if !hasPrice {
@@ -122,6 +114,21 @@ func calculateUsageSummaryCostFromTotals(
 		totalCost = 0
 	}
 	return &totalCost, true
+}
+
+func calculateUsageTokenCost(tokens usage.TokenStats, price config.UsageModelPrice) float64 {
+	inputTokens := max(tokens.InputTokens, 0)
+	outputTokens := max(tokens.OutputTokens, 0)
+	cachedTokens := max(tokens.CachedTokens, 0)
+	promptTokens := max(inputTokens-cachedTokens, 0)
+
+	totalCost := (float64(promptTokens) / usageTokensPerPriceUnit) * price.Prompt
+	totalCost += (float64(cachedTokens) / usageTokensPerPriceUnit) * price.Cache
+	totalCost += (float64(outputTokens) / usageTokensPerPriceUnit) * price.Completion
+	if math.IsNaN(totalCost) || math.IsInf(totalCost, 0) || totalCost < 0 {
+		return 0
+	}
+	return totalCost
 }
 
 func (h *Handler) usageSummaryCost(
@@ -138,4 +145,35 @@ func (h *Handler) usageSummaryCost(
 	}
 	totalCost, _ := calculateUsageSummaryCostFromTotals(totalsByModel, mergeUsageModelPrices(h.cfg))
 	return totalCost, nil
+}
+
+func buildUsageCostChart(
+	tokenCharts usage.UsageTokenChartData,
+	modelPrices map[string]config.UsageModelPrice,
+) usage.UsageChartData {
+	result := usage.UsageChartData{
+		TimeWindow:  tokenCharts.TimeWindow,
+		Period:      tokenCharts.Period,
+		Metric:      "cost",
+		Labels:      tokenCharts.Labels,
+		DataByModel: make(map[string][]float64),
+	}
+	if len(tokenCharts.DataByModel) == 0 || len(modelPrices) == 0 {
+		return result
+	}
+
+	for model, tokenSeries := range tokenCharts.DataByModel {
+		price, ok := resolveUsageModelPrice(modelPrices, model)
+		if !ok {
+			continue
+		}
+
+		costSeries := make([]float64, len(tokenSeries))
+		for idx, tokenStats := range tokenSeries {
+			costSeries[idx] = calculateUsageTokenCost(tokenStats, price)
+		}
+		result.DataByModel[model] = costSeries
+	}
+
+	return result
 }

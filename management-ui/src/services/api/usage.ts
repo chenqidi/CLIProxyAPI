@@ -41,7 +41,7 @@ export type UsageStatusQuery = UsageRangeQuery;
 
 export interface UsageChartQuery extends UsageRangeQuery {
   period?: 'hour' | 'day';
-  metric?: 'requests' | 'tokens';
+  metric?: 'requests' | 'tokens' | 'cost';
   hours?: number;
 }
 
@@ -186,7 +186,7 @@ export interface UsageChartData {
   windowStart: string | null;
   windowEnd: string | null;
   period: 'hour' | 'day';
-  metric: 'requests' | 'tokens';
+  metric: 'requests' | 'tokens' | 'cost';
   labels: string[];
   dataByModel: Record<string, number[]>;
 }
@@ -434,7 +434,8 @@ const adaptChartSeries = (value: unknown): number[] => {
 const adaptUsageChart = (value: unknown): UsageChartData => {
   const record = isRecord(value) ? value : null;
   const period = toText(record?.period) === 'hour' ? 'hour' : 'day';
-  const metric = toText(record?.metric) === 'tokens' ? 'tokens' : 'requests';
+  const metricText = toText(record?.metric);
+  const metric = metricText === 'tokens' || metricText === 'cost' ? metricText : 'requests';
   const labels = Array.isArray(record?.labels)
     ? record.labels.map((label) => toText(label)).filter(Boolean)
     : [];

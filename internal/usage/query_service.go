@@ -109,10 +109,18 @@ type UsageChartQuery struct {
 // UsageChartData is a lightweight chart payload grouped by model.
 type UsageChartData struct {
 	TimeWindow
-	Period      string             `json:"period"`
-	Metric      string             `json:"metric"`
-	Labels      []string           `json:"labels"`
-	DataByModel map[string][]int64 `json:"data_by_model"`
+	Period      string               `json:"period"`
+	Metric      string               `json:"metric"`
+	Labels      []string             `json:"labels"`
+	DataByModel map[string][]float64 `json:"data_by_model"`
+}
+
+// UsageTokenChartData returns bucketed token stats grouped by model.
+type UsageTokenChartData struct {
+	TimeWindow
+	Period      string                  `json:"period"`
+	Labels      []string                `json:"labels"`
+	DataByModel map[string][]TokenStats `json:"data_by_model"`
 }
 
 // UsageEventsQuery filters and paginates recent request events.
@@ -442,10 +450,6 @@ func (s *QueryService) Health(ctx context.Context, start, end *time.Time) (Servi
 
 // Charts returns chart-ready time-series data grouped by model.
 func (s *QueryService) Charts(ctx context.Context, query UsageChartQuery) (UsageChartData, error) {
-	period := strings.ToLower(strings.TrimSpace(query.Period))
-	if period == "" {
-		period = "day"
-	}
 	metric := strings.ToLower(strings.TrimSpace(query.Metric))
 	if metric == "" {
 		metric = "requests"
@@ -454,38 +458,14 @@ func (s *QueryService) Charts(ctx context.Context, query UsageChartQuery) (Usage
 		return UsageChartData{}, fmt.Errorf("unsupported chart metric %q", metric)
 	}
 
-	var (
-		defaultDuration time.Duration
-		step            time.Duration
-		labelFormat     string
-	)
-	switch period {
-	case "hour":
-		hours := query.HourWindowHours
-		if hours <= 0 {
-			hours = defaultHourChartWindowHours
-		}
-		if hours > 24*31 {
-			hours = 24 * 31
-		}
-		defaultDuration = time.Duration(hours) * time.Hour
-		step = time.Hour
-		labelFormat = "2006-01-02T15:00:00Z"
-	case "day":
-		defaultDuration = time.Duration(defaultDayChartWindowDays) * 24 * time.Hour
-		step = 24 * time.Hour
-		labelFormat = "2006-01-02"
-	default:
-		return UsageChartData{}, fmt.Errorf("unsupported chart period %q", period)
-	}
-
-	result := UsageChartData{Period: period, Metric: metric, DataByModel: make(map[string][]int64)}
-	repo, window, ok, err := s.repoAndWindow(ctx, query.Start, query.End, defaultDuration)
+	result := UsageChartData{Metric: metric, DataByModel: make(map[string][]float64)}
+	repo, window, normalizedPeriod, step, labels, ok, err := s.prepareChartWindow(ctx, query)
 	if err != nil {
 		return result, err
 	}
+	result.Period = normalizedPeriod
 	result.TimeWindow = window
-	result.Labels = buildTimeLabels(window.WindowStart, window.WindowEnd, step, labelFormat)
+	result.Labels = labels
 	if !ok || len(result.Labels) == 0 {
 		return result, nil
 	}
@@ -528,15 +508,88 @@ func (s *QueryService) Charts(ctx context.Context, query UsageChartQuery) (Usage
 		}
 		series, ok := result.DataByModel[model]
 		if !ok {
-			series = make([]int64, len(result.Labels))
+			series = make([]float64, len(result.Labels))
 		}
 		if bucketIdx >= 0 && bucketIdx < len(series) {
-			series[bucketIdx] = value
+			series[bucketIdx] = float64(value)
 		}
 		result.DataByModel[model] = series
 	}
 	if err := rows.Err(); err != nil {
 		return result, fmt.Errorf("usage query charts iterate: %w", err)
+	}
+	return result, nil
+}
+
+// TokenCharts returns bucketed token stats grouped by model for the requested chart window.
+func (s *QueryService) TokenCharts(ctx context.Context, query UsageChartQuery) (UsageTokenChartData, error) {
+	result := UsageTokenChartData{DataByModel: make(map[string][]TokenStats)}
+	repo, window, period, step, labels, ok, err := s.prepareChartWindow(ctx, query)
+	if err != nil {
+		return result, err
+	}
+	result.Period = period
+	result.TimeWindow = window
+	result.Labels = labels
+	if !ok || len(result.Labels) == 0 {
+		return result, nil
+	}
+
+	rows, err := repo.db.QueryContext(ctx, `SELECT
+		MIN(CAST((requested_at_ns - ?) / ? AS INTEGER), ?) AS bucket_idx,
+		model,
+		COALESCE(SUM(input_tokens), 0),
+		COALESCE(SUM(output_tokens), 0),
+		COALESCE(SUM(reasoning_tokens), 0),
+		COALESCE(SUM(cached_tokens), 0),
+		COALESCE(SUM(total_tokens), 0)
+	FROM usage_events
+	WHERE requested_at_ns >= ? AND requested_at_ns <= ?
+	GROUP BY bucket_idx, model
+	ORDER BY bucket_idx ASC, model ASC`,
+		window.WindowStart.UnixNano(),
+		step.Nanoseconds(),
+		len(result.Labels)-1,
+		window.WindowStart.UnixNano(),
+		window.WindowEnd.UnixNano(),
+	)
+	if err != nil {
+		return result, fmt.Errorf("usage query token charts: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			bucketIdx int
+			model     string
+			stats     TokenStats
+		)
+		if err := rows.Scan(
+			&bucketIdx,
+			&model,
+			&stats.InputTokens,
+			&stats.OutputTokens,
+			&stats.ReasoningTokens,
+			&stats.CachedTokens,
+			&stats.TotalTokens,
+		); err != nil {
+			return result, fmt.Errorf("usage query token charts scan: %w", err)
+		}
+		model = strings.TrimSpace(model)
+		if model == "" {
+			model = "unknown"
+		}
+		series, ok := result.DataByModel[model]
+		if !ok {
+			series = make([]TokenStats, len(result.Labels))
+		}
+		if bucketIdx >= 0 && bucketIdx < len(series) {
+			series[bucketIdx] = normaliseTokenStats(stats)
+		}
+		result.DataByModel[model] = series
+	}
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("usage query token charts iterate: %w", err)
 	}
 	return result, nil
 }
@@ -835,6 +888,47 @@ func (s *QueryService) resolveWindow(start, end *time.Time, defaultDuration time
 		windowStart = retentionStart
 	}
 	return TimeWindow{WindowStart: windowStart, WindowEnd: windowEnd}
+}
+
+func (s *QueryService) prepareChartWindow(
+	ctx context.Context,
+	query UsageChartQuery,
+) (*SQLiteRepository, TimeWindow, string, time.Duration, []string, bool, error) {
+	period, defaultDuration, step, labelFormat, err := resolveUsageChartPeriod(query)
+	if err != nil {
+		return nil, TimeWindow{}, "", 0, nil, false, err
+	}
+
+	repo, window, ok, err := s.repoAndWindow(ctx, query.Start, query.End, defaultDuration)
+	if err != nil {
+		return nil, TimeWindow{}, "", 0, nil, false, err
+	}
+
+	labels := buildTimeLabels(window.WindowStart, window.WindowEnd, step, labelFormat)
+	return repo, window, period, step, labels, ok, nil
+}
+
+func resolveUsageChartPeriod(query UsageChartQuery) (string, time.Duration, time.Duration, string, error) {
+	period := strings.ToLower(strings.TrimSpace(query.Period))
+	if period == "" {
+		period = "day"
+	}
+
+	switch period {
+	case "hour":
+		hours := query.HourWindowHours
+		if hours <= 0 {
+			hours = defaultHourChartWindowHours
+		}
+		if hours > 24*31 {
+			hours = 24 * 31
+		}
+		return period, time.Duration(hours) * time.Hour, time.Hour, "2006-01-02T15:00:00Z", nil
+	case "day":
+		return period, time.Duration(defaultDayChartWindowDays) * 24 * time.Hour, 24 * time.Hour, "2006-01-02", nil
+	default:
+		return "", 0, 0, "", fmt.Errorf("unsupported chart period %q", period)
+	}
 }
 
 func newStatusBarData(blockCount int, windowStart time.Time, blockDuration time.Duration) StatusBarData {

@@ -149,6 +149,43 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 		t.Fatalf("summary retention_days = %d, want 30", summary.RetentionDays)
 	}
 
+	chartRec := httptest.NewRecorder()
+	chartCtx, _ := gin.CreateTestContext(chartRec)
+	chartReq := httptest.NewRequest(
+		http.MethodGet,
+		"/v0/management/usage/charts?period=hour&metric=cost&hours=24&start="+now.Add(-24*time.Hour).Format(time.RFC3339Nano)+"&end="+now.Format(time.RFC3339Nano),
+		nil,
+	)
+	chartCtx.Request = chartReq
+
+	h.GetUsageCharts(chartCtx)
+
+	if chartRec.Code != http.StatusOK {
+		t.Fatalf("chart status = %d, want %d, body=%s", chartRec.Code, http.StatusOK, chartRec.Body.String())
+	}
+
+	var costChart usage.UsageChartData
+	if err := json.Unmarshal(chartRec.Body.Bytes(), &costChart); err != nil {
+		t.Fatalf("unmarshal cost chart: %v", err)
+	}
+	if costChart.Metric != "cost" || costChart.Period != "hour" {
+		t.Fatalf("unexpected cost chart meta: %+v", costChart)
+	}
+	series, ok := costChart.DataByModel["gpt-5.4"]
+	if !ok {
+		t.Fatalf("cost chart missing gpt-5.4 series: %+v", costChart.DataByModel)
+	}
+	if len(series) != len(costChart.Labels) {
+		t.Fatalf("cost chart series len = %d, want %d", len(series), len(costChart.Labels))
+	}
+	var totalSeriesCost float64
+	for _, point := range series {
+		totalSeriesCost += point
+	}
+	if diff := math.Abs(totalSeriesCost - wantTotalCost); diff > 1e-12 {
+		t.Fatalf("cost chart total = %.12f, want %.12f (diff %.12f)", totalSeriesCost, wantTotalCost, diff)
+	}
+
 	eventsRec := httptest.NewRecorder()
 	eventsCtx, _ := gin.CreateTestContext(eventsRec)
 	eventsReq := httptest.NewRequest(

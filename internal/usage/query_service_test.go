@@ -103,6 +103,28 @@ func TestQueryServiceSummaryChartsAndEvents(t *testing.T) {
 		t.Fatalf("gpt-5.4 series len = %d, want %d", got, len(chart.Labels))
 	}
 
+	tokenChart, err := service.TokenCharts(context.Background(), UsageChartQuery{
+		Start:  &chartStart,
+		End:    &end,
+		Period: "day",
+	})
+	if err != nil {
+		t.Fatalf("TokenCharts() error = %v", err)
+	}
+	if tokenChart.Period != "day" {
+		t.Fatalf("tokenChart period = %q, want %q", tokenChart.Period, "day")
+	}
+	if got := len(tokenChart.DataByModel["gpt-5.4"]); got != len(tokenChart.Labels) {
+		t.Fatalf("token chart gpt-5.4 series len = %d, want %d", got, len(tokenChart.Labels))
+	}
+	var gpt54Total int64
+	for _, bucket := range tokenChart.DataByModel["gpt-5.4"] {
+		gpt54Total += bucket.TotalTokens
+	}
+	if gpt54Total != 33 {
+		t.Fatalf("token chart gpt-5.4 total_tokens = %d, want 33", gpt54Total)
+	}
+
 	failed := true
 	events, err := service.Events(context.Background(), UsageEventsQuery{
 		Start:    &start,

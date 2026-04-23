@@ -96,7 +96,7 @@ func (h *Handler) GetUsageHealth(c *gin.Context) {
 func (h *Handler) GetUsageCharts(c *gin.Context) {
 	service := h.usageQuery()
 	if service == nil {
-		c.JSON(http.StatusOK, usage.UsageChartData{DataByModel: make(map[string][]int64)})
+		c.JSON(http.StatusOK, usage.UsageChartData{DataByModel: make(map[string][]float64)})
 		return
 	}
 	start, end, ok := parseUsageRange(c)
@@ -112,13 +112,26 @@ func (h *Handler) GetUsageCharts(c *gin.Context) {
 		}
 		hourWindow = parsed
 	}
-	result, err := service.Charts(c.Request.Context(), usage.UsageChartQuery{
+	query := usage.UsageChartQuery{
 		Start:           start,
 		End:             end,
 		Period:          c.DefaultQuery("period", "day"),
 		Metric:          c.DefaultQuery("metric", "requests"),
 		HourWindowHours: hourWindow,
-	})
+	}
+
+	metric := strings.ToLower(strings.TrimSpace(query.Metric))
+	if metric == "cost" {
+		tokenCharts, err := service.TokenCharts(c.Request.Context(), query)
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, buildUsageCostChart(tokenCharts, mergeUsageModelPrices(h.cfg)))
+		return
+	}
+
+	result, err := service.Charts(c.Request.Context(), query)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

@@ -144,6 +144,15 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
         loadUsageChart(
           {
             range: timeRange,
+            period: 'hour',
+            metric: 'cost',
+            hours: getUsageTimeRangeHours(timeRange),
+          },
+          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
+        ),
+        loadUsageChart(
+          {
+            range: timeRange,
             period: 'day',
             metric: 'requests',
           },
@@ -318,6 +327,15 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     try {
       await usageApi.updateModelPrices(overrides);
       updateConfigValue('usage-model-prices', overrides);
+      try {
+        await loadDashboardData(true);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : '';
+        showNotification(
+          `${t('notification.refresh_failed')}${message ? `: ${message}` : ''}`,
+          'error'
+        );
+      }
       showNotification(
         t(options?.action === 'delete' ? 'usage_stats.model_price_deleted' : 'usage_stats.model_price_saved'),
         'success'
@@ -333,7 +351,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     } finally {
       setSavingModelPrices(false);
     }
-  }, [showNotification, t, updateConfigValue]);
+  }, [loadDashboardData, showNotification, t, updateConfigValue]);
 
   return {
     summary,
