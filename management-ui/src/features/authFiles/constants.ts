@@ -217,6 +217,13 @@ export function isRuntimeOnlyAuthFile(file: AuthFileItem): boolean {
   return false;
 }
 
+export function isCurrentActiveAuthFile(file: AuthFileItem): boolean {
+  const raw = file['current_active'] ?? file.currentActive;
+  if (typeof raw === 'boolean') return raw;
+  if (typeof raw === 'string') return raw.trim().toLowerCase() === 'true';
+  return false;
+}
+
 export function resolveAuthFileStats(file: AuthFileItem, stats: KeyStats): KeyStatBucket {
   const defaultStats: KeyStatBucket = { success: 0, failure: 0 };
   const rawFileName = file?.name || '';

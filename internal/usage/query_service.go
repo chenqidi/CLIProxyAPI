@@ -42,21 +42,21 @@ type TimeWindow struct {
 // UsageSummary is the lightweight summary payload for the management usage dashboard.
 type UsageSummary struct {
 	TimeWindow
-	TotalRequests     int64   `json:"total_requests"`
-	SuccessCount      int64   `json:"success_count"`
-	FailureCount      int64   `json:"failure_count"`
-	TotalTokens       int64   `json:"total_tokens"`
+	TotalRequests     int64    `json:"total_requests"`
+	SuccessCount      int64    `json:"success_count"`
+	FailureCount      int64    `json:"failure_count"`
+	TotalTokens       int64    `json:"total_tokens"`
 	TotalCost         *float64 `json:"total_cost,omitempty"`
-	CachedTokens      int64   `json:"cached_tokens"`
-	ReasoningTokens   int64   `json:"reasoning_tokens"`
-	DistinctSources   int64   `json:"distinct_sources"`
-	DistinctAuthIndex int64   `json:"distinct_auth_indexes"`
-	DistinctModels    int64   `json:"distinct_models"`
-	RequestsLast30m   int64   `json:"requests_last_30m"`
-	TokensLast30m     int64   `json:"tokens_last_30m"`
-	RPM30m            float64 `json:"rpm_30m"`
-	TPM30m            float64 `json:"tpm_30m"`
-	RetentionDays     int     `json:"retention_days"`
+	CachedTokens      int64    `json:"cached_tokens"`
+	ReasoningTokens   int64    `json:"reasoning_tokens"`
+	DistinctSources   int64    `json:"distinct_sources"`
+	DistinctAuthIndex int64    `json:"distinct_auth_indexes"`
+	DistinctModels    int64    `json:"distinct_models"`
+	RequestsLast30m   int64    `json:"requests_last_30m"`
+	TokensLast30m     int64    `json:"tokens_last_30m"`
+	RPM30m            float64  `json:"rpm_30m"`
+	TPM30m            float64  `json:"tpm_30m"`
+	RetentionDays     int      `json:"retention_days"`
 }
 
 // StatusBlockDetail captures success/failure counts for a single status block.
@@ -153,6 +153,14 @@ type UsageEventsPage struct {
 	TotalItems int64            `json:"total_items"`
 	HasMore    bool             `json:"has_more"`
 	Items      []UsageEventItem `json:"items"`
+}
+
+// CurrentAuthHit describes the latest successful auth hit observed for a provider.
+type CurrentAuthHit struct {
+	Timestamp time.Time `json:"timestamp"`
+	Provider  string    `json:"provider"`
+	AuthID    string    `json:"auth_id"`
+	AuthIndex string    `json:"auth_index"`
 }
 
 // QueryService provides lightweight usage queries backed by SQLite.
@@ -694,6 +702,88 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 		return result, fmt.Errorf("usage query events iterate: %w", err)
 	}
 	result.HasMore = int64(offset+len(result.Items)) < result.TotalItems
+	return result, nil
+}
+
+// LatestSuccessfulAuthByProvider returns the latest successful auth hit observed
+// for each provider within the requested time window.
+func (s *QueryService) LatestSuccessfulAuthByProvider(
+	ctx context.Context,
+	start, end *time.Time,
+) (map[string]CurrentAuthHit, error) {
+	result := make(map[string]CurrentAuthHit)
+
+	repo, window, ok, err := s.repoAndWindow(
+		ctx,
+		start,
+		end,
+		time.Duration(s.RetentionDays())*24*time.Hour,
+	)
+	if err != nil {
+		return result, err
+	}
+	if !ok {
+		return result, nil
+	}
+
+	rows, err := repo.db.QueryContext(ctx, `SELECT
+		e.requested_at_ns,
+		LOWER(TRIM(e.provider)) AS provider_key,
+		e.auth_id,
+		e.auth_index
+	FROM usage_events e
+	WHERE e.failed = 0
+		AND e.requested_at_ns >= ? AND e.requested_at_ns <= ?
+		AND LOWER(TRIM(e.provider)) != ''
+		AND e.id = (
+			SELECT e2.id
+			FROM usage_events e2
+			WHERE LOWER(TRIM(e2.provider)) = LOWER(TRIM(e.provider))
+				AND e2.failed = 0
+				AND e2.requested_at_ns >= ? AND e2.requested_at_ns <= ?
+			ORDER BY e2.requested_at_ns DESC, e2.id DESC
+			LIMIT 1
+		)
+	ORDER BY e.requested_at_ns DESC, e.id DESC`,
+		window.WindowStart.UnixNano(),
+		window.WindowEnd.UnixNano(),
+		window.WindowStart.UnixNano(),
+		window.WindowEnd.UnixNano(),
+	)
+	if err != nil {
+		return result, fmt.Errorf("usage query latest successful auth by provider: %w", err)
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var (
+			requestedAtNS int64
+			provider      string
+			authID        string
+			authIndex     string
+		)
+		if err := rows.Scan(&requestedAtNS, &provider, &authID, &authIndex); err != nil {
+			return result, fmt.Errorf("usage query latest successful auth by provider scan: %w", err)
+		}
+
+		providerKey := strings.ToLower(strings.TrimSpace(provider))
+		if providerKey == "" {
+			continue
+		}
+		if _, exists := result[providerKey]; exists {
+			continue
+		}
+		result[providerKey] = CurrentAuthHit{
+			Timestamp: time.Unix(0, requestedAtNS).UTC(),
+			Provider:  providerKey,
+			AuthID:    strings.TrimSpace(authID),
+			AuthIndex: strings.TrimSpace(authIndex),
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return result, fmt.Errorf("usage query latest successful auth by provider iterate: %w", err)
+	}
+
 	return result, nil
 }
 

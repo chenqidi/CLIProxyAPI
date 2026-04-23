@@ -13,7 +13,6 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { animate } from 'motion/mini';
 import type { AnimationPlaybackControlsWithThen } from 'motion-dom';
-import type { AuthFileItem } from '@/types';
 import { useInterval } from '@/hooks/useInterval';
 import { useHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { usePageTransitionLayer } from '@/components/common/PageTransitionLayer';
@@ -31,10 +30,10 @@ import {
   QUOTA_PROVIDER_TYPES,
   clampCardPageSize,
   getAuthFileIcon,
-  getAuthFileStatusMessage,
   getTypeColor,
   getTypeLabel,
   hasAuthFileStatusMessage,
+  isCurrentActiveAuthFile,
   isRuntimeOnlyAuthFile,
   normalizeProviderKey,
   parsePriorityValue,
@@ -70,13 +69,6 @@ const BATCH_BAR_HIDDEN_TRANSFORM = 'translateX(-50%) translateY(56px)';
 const DEFAULT_REGULAR_PAGE_SIZE = 9;
 const DEFAULT_COMPACT_PAGE_SIZE = 12;
 const FILL_FIRST_ROUTE_REFRESH_INTERVAL_MS = 15_000;
-const FILL_FIRST_BLOCKING_STATUS_PATTERNS = [
-  'usage_limit_reached',
-  'usage limit has been reached',
-  'selected model is at capacity',
-  'model is at capacity. please try a different model',
-  'quota exhausted',
-] as const;
 
 const escapeWildcardSearchSegment = (value: string) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -93,158 +85,6 @@ const normalizeRoutingStrategy = (value: string | null | undefined): 'fill-first
     return 'fill-first';
   }
   return 'round-robin';
-};
-
-const parseDateValue = (value: unknown): number | null => {
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    return value < 1e12 ? value * 1000 : value;
-  }
-
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    if (!trimmed) return null;
-
-    const asNumber = Number(trimmed);
-    if (Number.isFinite(asNumber)) {
-      return asNumber < 1e12 ? asNumber * 1000 : asNumber;
-    }
-
-    const parsed = Date.parse(trimmed);
-    return Number.isNaN(parsed) ? null : parsed;
-  }
-
-  return null;
-};
-
-const parseRetryDelaySeconds = (value: unknown): number | null => {
-  if (typeof value === 'number') {
-    return Number.isFinite(value) && value > 0 ? value : null;
-  }
-
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const parsed = Number(trimmed);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-};
-
-const statusMessageSuggestsFillFirstBlock = (value: string): boolean => {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized) return false;
-  return FILL_FIRST_BLOCKING_STATUS_PATTERNS.some((pattern) => normalized.includes(pattern));
-};
-
-const parseFillFirstBlockUntilFromStatusMessage = (value: string, now: number): number | null => {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-
-  let payload: unknown;
-  try {
-    payload = JSON.parse(trimmed);
-  } catch {
-    return null;
-  }
-
-  if (!payload || typeof payload !== 'object') return null;
-
-  const record =
-    'error' in payload && payload.error && typeof payload.error === 'object'
-      ? (payload.error as Record<string, unknown>)
-      : (payload as Record<string, unknown>);
-
-  const fingerprint = [
-    String(record.type ?? '').trim(),
-    String(record.code ?? '').trim(),
-    String(record.message ?? '').trim(),
-    trimmed,
-  ]
-    .join(' ')
-    .trim();
-
-  if (!statusMessageSuggestsFillFirstBlock(fingerprint)) return null;
-
-  const absoluteRetryAt = parseDateValue(
-    record.resets_at ??
-      record.resetsAt ??
-      record.reset_at ??
-      record.resetAt ??
-      record.next_retry_after ??
-      record.nextRetryAfter
-  );
-  if (absoluteRetryAt !== null && absoluteRetryAt > now) {
-    return absoluteRetryAt;
-  }
-
-  const retryDelaySecondsCandidates = [
-    record.resets_in_seconds,
-    record.resetsInSeconds,
-    record.reset_seconds,
-    record.resetSeconds,
-    record.retry_after,
-    record.retryAfter,
-    record.retry_after_seconds,
-    record.retryAfterSeconds,
-  ];
-
-  for (const candidate of retryDelaySecondsCandidates) {
-    const retryDelaySeconds = parseRetryDelaySeconds(candidate);
-    if (retryDelaySeconds !== null) {
-      return now + retryDelaySeconds * 1000;
-    }
-  }
-
-  return null;
-};
-
-const fillFirstBlockUntil = (file: AuthFileItem, now: number): number | null => {
-  const nextRetryAt = parseDateValue(file['next_retry_after'] ?? file.nextRetryAfter);
-  if (nextRetryAt !== null && nextRetryAt > now) {
-    return nextRetryAt;
-  }
-
-  const statusMessage = getAuthFileStatusMessage(file);
-  const retryAtFromStatus = parseFillFirstBlockUntilFromStatusMessage(statusMessage, now);
-  if (retryAtFromStatus !== null && retryAtFromStatus > now) {
-    return retryAtFromStatus;
-  }
-
-  if (file.unavailable === true && statusMessageSuggestsFillFirstBlock(statusMessage)) {
-    return now;
-  }
-
-  return null;
-};
-
-const isAvailableForFillFirst = (file: AuthFileItem, now: number): boolean => {
-  if (isRuntimeOnlyAuthFile(file)) return false;
-  if (file.disabled) return false;
-
-  const status = String(file.status ?? '').trim().toLowerCase();
-  if (status === 'disabled') return false;
-
-  if (fillFirstBlockUntil(file, now) !== null) {
-    return false;
-  }
-
-  return true;
-};
-
-const resolveRoutingIdentity = (file: AuthFileItem): string =>
-  String(file.id ?? file.name ?? '')
-    .trim()
-    .toLowerCase();
-
-const compareFillFirstCandidates = (left: AuthFileItem, right: AuthFileItem): number => {
-  const leftPriority = parsePriorityValue(left.priority ?? left['priority']) ?? 0;
-  const rightPriority = parsePriorityValue(right.priority ?? right['priority']) ?? 0;
-  if (leftPriority !== rightPriority) return rightPriority - leftPriority;
-
-  const leftIdentity = resolveRoutingIdentity(left);
-  const rightIdentity = resolveRoutingIdentity(right);
-  const identityCompare = leftIdentity.localeCompare(rightIdentity);
-  if (identityCompare !== 0) return identityCompare;
-
-  return left.name.localeCompare(right.name);
 };
 
 export function AuthFilesPage() {
@@ -598,36 +438,6 @@ export function AuthFilesPage() {
     }
     return copy;
   }, [filtered, sortMode]);
-
-  const currentRoutedFileNames = useMemo(() => {
-    if (!fillFirstEnabled) return new Set<string>();
-
-    const candidatesByProvider = new Map<string, AuthFileItem[]>();
-    const now = Date.now();
-
-    files.forEach((file) => {
-      const providerKey = normalizeProviderKey(String(file.provider ?? file.type ?? ''));
-      if (!providerKey) return;
-      if (!isAvailableForFillFirst(file, now)) return;
-
-      const bucket = candidatesByProvider.get(providerKey);
-      if (bucket) {
-        bucket.push(file);
-      } else {
-        candidatesByProvider.set(providerKey, [file]);
-      }
-    });
-
-    const current = new Set<string>();
-    candidatesByProvider.forEach((providerFiles) => {
-      const winner = [...providerFiles].sort(compareFillFirstCandidates)[0];
-      if (winner?.name) {
-        current.add(winner.name);
-      }
-    });
-
-    return current;
-  }, [files, fillFirstEnabled]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const currentPage = Math.min(page, totalPages);
@@ -1001,7 +811,7 @@ export function AuthFilesPage() {
                     file={file}
                     compact={compactMode}
                     selected={selectedFiles.has(file.name)}
-                    isCurrentRouted={currentRoutedFileNames.has(file.name)}
+                    isCurrentActive={fillFirstEnabled && isCurrentActiveAuthFile(file)}
                     resolvedTheme={resolvedTheme}
                     disableControls={disableControls}
                     deleting={deleting}

@@ -30,6 +30,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
 	sdkAuth "github.com/router-for-me/CLIProxyAPI/v6/sdk/auth"
 	coreauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
@@ -47,6 +48,7 @@ const (
 	codexCallbackPort     = 1455
 	geminiCLIEndpoint     = "https://cloudcode-pa.googleapis.com"
 	geminiCLIVersion      = "v1internal"
+	currentAuthActiveTTL  = 10 * time.Minute
 )
 
 type callbackForwarder struct {
@@ -244,10 +246,15 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		h.listAuthFilesFromDisk(c)
 		return
 	}
+	currentActiveByProvider := h.latestSuccessfulAuthByProvider(c.Request.Context())
 	auths := h.authManager.List()
 	files := make([]gin.H, 0, len(auths))
 	for _, auth := range auths {
 		if entry := h.buildAuthFileEntry(auth); entry != nil {
+			providerKey := strings.ToLower(strings.TrimSpace(auth.Provider))
+			if currentActive, ok := currentActiveByProvider[providerKey]; ok && authMatchesCurrentActiveHit(auth, currentActive) {
+				entry["current_active"] = true
+			}
 			files = append(files, entry)
 		}
 	}
@@ -257,6 +264,38 @@ func (h *Handler) ListAuthFiles(c *gin.Context) {
 		return strings.ToLower(nameI) < strings.ToLower(nameJ)
 	})
 	c.JSON(200, gin.H{"files": files})
+}
+
+func (h *Handler) latestSuccessfulAuthByProvider(ctx context.Context) map[string]usage.CurrentAuthHit {
+	result := make(map[string]usage.CurrentAuthHit)
+	service := h.usageQuery()
+	if service == nil {
+		return result
+	}
+
+	windowEnd := time.Now().UTC()
+	windowStart := windowEnd.Add(-currentAuthActiveTTL)
+	hits, err := service.LatestSuccessfulAuthByProvider(ctx, &windowStart, &windowEnd)
+	if err != nil {
+		log.WithError(err).Warn("management: failed to resolve current active auths from usage events")
+		return result
+	}
+	return hits
+}
+
+func authMatchesCurrentActiveHit(auth *coreauth.Auth, hit usage.CurrentAuthHit) bool {
+	if auth == nil {
+		return false
+	}
+
+	authID := strings.TrimSpace(auth.ID)
+	if authID != "" && authID == strings.TrimSpace(hit.AuthID) {
+		return true
+	}
+
+	auth.EnsureIndex()
+	authIndex := strings.TrimSpace(auth.Index)
+	return authIndex != "" && authIndex == strings.TrimSpace(hit.AuthIndex)
 }
 
 // GetAuthFileModels returns the models supported by a specific auth file
