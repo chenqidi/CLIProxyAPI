@@ -1,6 +1,6 @@
 /**
- * 使用统计相关工具
- * 迁移自基线 modules/usage.js 的纯逻辑部分
+ * Usage statistics utilities
+ * Pure logic migrated from baseline modules/usage.js
  */
 
 import type { ScriptableContext } from 'chart.js';
@@ -445,7 +445,7 @@ export function buildCandidateUsageSourceIds(input: { apiKey?: string; prefix?: 
 }
 
 /**
- * 对使用数据中的敏感字段进行遮罩
+ * Mask sensitive fields in usage data.
  */
 export function maskUsageSensitiveValue(value: unknown, masker: (val: string) => string = maskApiKey): string {
   if (value === null || value === undefined) {
@@ -489,7 +489,7 @@ export function maskUsageSensitiveValue(value: unknown, masker: (val: string) =>
 }
 
 /**
- * 格式化每分钟数值
+ * Format per-minute values.
  */
 export function formatPerMinuteValue(value: number): string {
   const num = Number(value);
@@ -510,7 +510,7 @@ export function formatPerMinuteValue(value: number): string {
 }
 
 /**
- * 格式化紧凑数字
+ * Format compact numbers.
  */
 export function formatCompactNumber(value: number): string {
   const num = Number(value);
@@ -528,7 +528,7 @@ export function formatCompactNumber(value: number): string {
 }
 
 /**
- * 格式化美元
+ * Format USD values.
  */
 export function formatUsd(value: number): string {
   const num = Number(value);
@@ -547,7 +547,7 @@ const usageDetailsCache = new WeakMap<object, UsageDetail[]>();
 const usageDetailsWithEndpointCache = new WeakMap<object, UsageDetailWithEndpoint[]>();
 
 /**
- * 从使用数据中收集所有请求明细
+ * Collect all request details from usage data.
  */
 export function collectUsageDetails(usageData: unknown): UsageDetail[] {
   const cacheKey = isRecord(usageData) ? (usageData as object) : null;
@@ -613,7 +613,7 @@ export function collectUsageDetails(usageData: unknown): UsageDetail[] {
 }
 
 /**
- * 从使用数据中收集包含 endpoint/method/path 的请求明细
+ * Collect request details that include endpoint, method, and path.
  */
 export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetailWithEndpoint[] {
   const cacheKey = isRecord(usageData) ? (usageData as object) : null;
@@ -687,7 +687,7 @@ export function collectUsageDetailsWithEndpoint(usageData: unknown): UsageDetail
 }
 
 /**
- * 从单条明细提取总 tokens
+ * Extract total tokens from one detail row.
  */
 export function extractTotalTokens(detail: unknown): number {
   const record = isRecord(detail) ? detail : null;
@@ -708,7 +708,7 @@ export function extractTotalTokens(detail: unknown): number {
 }
 
 /**
- * 计算 token 分类统计
+ * Calculate token category totals.
  */
 export function calculateTokenBreakdown(usageData: unknown): TokenBreakdown {
   const details = collectUsageDetails(usageData);
@@ -734,7 +734,7 @@ export function calculateTokenBreakdown(usageData: unknown): TokenBreakdown {
 }
 
 /**
- * 计算最近 N 分钟的 RPM/TPM
+ * Calculate RPM/TPM for the last N minutes.
  */
 export function calculateRecentPerMinuteRates(
   windowMinutes: number = 30,
@@ -773,7 +773,7 @@ export function calculateRecentPerMinuteRates(
 }
 
 /**
- * 从使用数据获取模型名称列表
+ * Get model names from usage data.
  */
 export function getModelNamesFromUsage(usageData: unknown): string[] {
   const apis = getApisRecord(usageData);
@@ -866,20 +866,30 @@ export function hasAnyResolvableModelPrice(
   return getModelNamesFromUsage(usageData).some((modelName) => resolveModelPrice(modelPrices, modelName) !== null);
 }
 
+export interface TokenCostInput {
+  inputTokens: number;
+  outputTokens: number;
+  cachedTokens?: number;
+  cacheTokens?: number;
+}
+
 /**
- * 计算成本数据
+ * Calculate token cost for a specific model.
  */
-export function calculateCost(detail: UsageDetail, modelPrices: Record<string, ModelPrice>): number {
-  const modelName = detail.__modelName || '';
+export function calculateTokenCostForModel(
+  modelName: string,
+  tokens: TokenCostInput,
+  modelPrices: Record<string, ModelPrice>
+): number {
   const price = resolveModelPrice(modelPrices, modelName);
   if (!price) {
     return 0;
   }
-  const tokens = detail.tokens;
-  const rawInputTokens = Number(tokens.input_tokens);
-  const rawCompletionTokens = Number(tokens.output_tokens);
-  const rawCachedTokensPrimary = Number(tokens.cached_tokens);
-  const rawCachedTokensAlternate = Number(tokens.cache_tokens);
+
+  const rawInputTokens = Number(tokens.inputTokens);
+  const rawCompletionTokens = Number(tokens.outputTokens);
+  const rawCachedTokensPrimary = Number(tokens.cachedTokens);
+  const rawCachedTokensAlternate = Number(tokens.cacheTokens);
 
   const inputTokens = Number.isFinite(rawInputTokens) ? Math.max(rawInputTokens, 0) : 0;
   const completionTokens = Number.isFinite(rawCompletionTokens) ? Math.max(rawCompletionTokens, 0) : 0;
@@ -897,7 +907,24 @@ export function calculateCost(detail: UsageDetail, modelPrices: Record<string, M
 }
 
 /**
- * 计算总成本
+ * Calculate cost for a usage detail.
+ */
+export function calculateCost(detail: UsageDetail, modelPrices: Record<string, ModelPrice>): number {
+  const tokens = detail.tokens;
+  return calculateTokenCostForModel(
+    detail.__modelName || '',
+    {
+      inputTokens: tokens.input_tokens,
+      outputTokens: tokens.output_tokens,
+      cachedTokens: tokens.cached_tokens,
+      cacheTokens: tokens.cache_tokens,
+    },
+    modelPrices
+  );
+}
+
+/**
+ * Calculate total cost.
  */
 export function calculateTotalCost(usageData: unknown, modelPrices: Record<string, ModelPrice>): number {
   const details = collectUsageDetails(usageData);
@@ -908,7 +935,7 @@ export function calculateTotalCost(usageData: unknown, modelPrices: Record<strin
 }
 
 /**
- * 获取 API 统计数据
+ * Get API statistics.
  */
 export function getApiStats(usageData: unknown, modelPrices: Record<string, ModelPrice>): ApiStats[] {
   const apis = getApisRecord(usageData);
@@ -991,7 +1018,7 @@ export function getApiStats(usageData: unknown, modelPrices: Record<string, Mode
 }
 
 /**
- * 获取模型统计数据
+ * Get model statistics.
  */
 export function getModelStats(usageData: unknown, modelPrices: Record<string, ModelPrice>): Array<{
   model: string;
@@ -1058,7 +1085,7 @@ export function getModelStats(usageData: unknown, modelPrices: Record<string, Mo
 }
 
 /**
- * 格式化小时标签
+ * Format hour labels.
  */
 export function formatHourLabel(date: Date): string {
   if (!(date instanceof Date)) {
@@ -1071,7 +1098,7 @@ export function formatHourLabel(date: Date): string {
 }
 
 /**
- * 格式化日期标签
+ * Format date labels.
  */
 export function formatDayLabel(date: Date): string {
   if (!(date instanceof Date)) {
@@ -1084,7 +1111,7 @@ export function formatDayLabel(date: Date): string {
 }
 
 /**
- * 构建小时级别的数据序列
+ * Build hourly data series.
  */
 export function buildHourlySeriesByModel(
   usageData: unknown,
@@ -1160,7 +1187,7 @@ export function buildHourlySeriesByModel(
 }
 
 /**
- * 构建日级别的数据序列
+ * Build daily data series.
  */
 export function buildDailySeriesByModel(
   usageData: unknown,
@@ -1281,7 +1308,7 @@ const buildAreaGradient = (context: ScriptableContext<'line'>, baseHex: string, 
 };
 
 /**
- * 构建图表数据
+ * Build chart data.
  */
 export function buildChartData(
   usageData: unknown,
@@ -1335,29 +1362,29 @@ export function buildChartData(
 }
 
 /**
- * 依据 usage 数据计算密钥使用统计
+ * Calculate key usage statistics from usage data.
  */
 /**
- * 状态栏单个格子的状态
+ * State for a single status-bar cell.
  */
 export type StatusBlockState = 'success' | 'failure' | 'mixed' | 'idle';
 
 /**
- * 状态栏单个格子的详细信息
+ * Detail for a single status-bar cell.
  */
 export interface StatusBlockDetail {
   success: number;
   failure: number;
-  /** 该格子的成功率 (0–1)，无请求时为 -1 */
+  /** Success rate for this cell (0–1), or -1 when there are no requests. */
   rate: number;
-  /** 格子起始时间戳 (ms) */
+  /** Cell start timestamp (ms). */
   startTime: number;
-  /** 格子结束时间戳 (ms) */
+  /** Cell end timestamp (ms). */
   endTime: number;
 }
 
 /**
- * 状态栏数据
+ * Status bar data.
  */
 export interface StatusBarData {
   blocks: StatusBlockState[];
@@ -1368,8 +1395,8 @@ export interface StatusBarData {
 }
 
 /**
- * 计算状态栏数据（最近200分钟，分为20个10分钟的时间块）
- * 每个时间块代表窗口内的一个等长区间，用于展示成功/失败趋势
+ * Calculate status bar data (last 200 minutes, split into twenty 10-minute blocks).
+ * Each block represents an equal interval within the window for success/failure trends.
  */
 export function calculateStatusBarData(
   usageDetails: UsageDetail[],
@@ -1564,8 +1591,8 @@ export function mergeStatusBarData(
 }
 
 /**
- * 服务健康监测数据（最近168小时/7天，7×96网格）
- * 每个格子代表15分钟的健康度
+ * Service health monitoring data (last 168 hours / 7 days, 7×96 grid).
+ * Each cell represents 15 minutes of health status.
  */
 export interface ServiceHealthData {
   blocks: StatusBlockState[];
@@ -1763,7 +1790,7 @@ export interface TokenBreakdownSeries {
 }
 
 /**
- * 按 token 类别构建小时级别的堆叠序列
+ * Build hourly stacked series by token category.
  */
 export function buildHourlyTokenBreakdown(
   usageData: unknown,
@@ -1829,7 +1856,7 @@ export function buildHourlyTokenBreakdown(
 }
 
 /**
- * 按 token 类别构建日级别的堆叠序列
+ * Build daily stacked series by token category.
  */
 export function buildDailyTokenBreakdown(usageData: unknown): TokenBreakdownSeries {
   const details = collectUsageDetails(usageData);
@@ -1881,7 +1908,7 @@ export interface CostSeries {
 }
 
 /**
- * 按小时构建费用时间序列
+ * Build hourly cost time series.
  */
 export function buildHourlyCostSeries(
   usageData: unknown,
@@ -1933,7 +1960,7 @@ export function buildHourlyCostSeries(
 }
 
 /**
- * 按天构建费用时间序列
+ * Build daily cost time series.
  */
 export function buildDailyCostSeries(
   usageData: unknown,

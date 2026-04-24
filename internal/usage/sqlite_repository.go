@@ -136,6 +136,7 @@ func (r *SQLiteRepository) ensureSchema(ctx context.Context) error {
 			auth_index TEXT NOT NULL,
 			source TEXT NOT NULL,
 			latency_ms INTEGER NOT NULL,
+			first_token_latency_ms INTEGER NOT NULL DEFAULT 0,
 			failed INTEGER NOT NULL,
 			input_tokens INTEGER NOT NULL,
 			output_tokens INTEGER NOT NULL,
@@ -157,6 +158,7 @@ func (r *SQLiteRepository) ensureSchema(ctx context.Context) error {
 	alterStatements := []string{
 		`ALTER TABLE usage_events ADD COLUMN request_method TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE usage_events ADD COLUMN request_path TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE usage_events ADD COLUMN first_token_latency_ms INTEGER NOT NULL DEFAULT 0`,
 	}
 	for _, statement := range alterStatements {
 		if _, err := r.db.ExecContext(ctx, statement); err != nil {
@@ -438,6 +440,7 @@ func (r *SQLiteRepository) insertBatch(ctx context.Context, batch []UsageEvent) 
 		auth_index,
 		source,
 		latency_ms,
+		first_token_latency_ms,
 		failed,
 		input_tokens,
 		output_tokens,
@@ -445,7 +448,7 @@ func (r *SQLiteRepository) insertBatch(ctx context.Context, batch []UsageEvent) 
 		cached_tokens,
 		total_tokens,
 		dedup_key
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("usage sqlite repository: prepare insert: %w", err)
 	}
@@ -465,6 +468,7 @@ func (r *SQLiteRepository) insertBatch(ctx context.Context, batch []UsageEvent) 
 			event.AuthIndex,
 			event.Source,
 			event.LatencyMs,
+			event.FirstTokenLatencyMs,
 			boolToInt(event.Failed),
 			event.Tokens.InputTokens,
 			event.Tokens.OutputTokens,
@@ -526,6 +530,7 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 		auth_index,
 		source,
 		latency_ms,
+		first_token_latency_ms,
 		failed,
 		input_tokens,
 		output_tokens,
@@ -543,20 +548,21 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 	stats := NewRequestStatistics()
 	for rows.Next() {
 		var (
-			requestedAtNS   int64
-			provider        string
-			model           string
-			apiKey          string
-			authID          string
-			authIndex       string
-			source          string
-			latencyMs       int64
-			failedInt       int
-			inputTokens     int64
-			outputTokens    int64
-			reasoningTokens int64
-			cachedTokens    int64
-			totalTokens     int64
+			requestedAtNS       int64
+			provider            string
+			model               string
+			apiKey              string
+			authID              string
+			authIndex           string
+			source              string
+			latencyMs           int64
+			firstTokenLatencyMs int64
+			failedInt           int
+			inputTokens         int64
+			outputTokens        int64
+			reasoningTokens     int64
+			cachedTokens        int64
+			totalTokens         int64
 		)
 		if err := rows.Scan(
 			&requestedAtNS,
@@ -567,6 +573,7 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 			&authIndex,
 			&source,
 			&latencyMs,
+			&firstTokenLatencyMs,
 			&failedInt,
 			&inputTokens,
 			&outputTokens,
@@ -578,15 +585,16 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 		}
 
 		event := normaliseUsageEvent(UsageEvent{
-			RequestedAt: time.Unix(0, requestedAtNS).UTC(),
-			Provider:    provider,
-			Model:       model,
-			APIKey:      apiKey,
-			AuthID:      authID,
-			AuthIndex:   authIndex,
-			Source:      source,
-			LatencyMs:   latencyMs,
-			Failed:      failedInt != 0,
+			RequestedAt:         time.Unix(0, requestedAtNS).UTC(),
+			Provider:            provider,
+			Model:               model,
+			APIKey:              apiKey,
+			AuthID:              authID,
+			AuthIndex:           authIndex,
+			Source:              source,
+			LatencyMs:           latencyMs,
+			FirstTokenLatencyMs: firstTokenLatencyMs,
+			Failed:              failedInt != 0,
 			Tokens: TokenStats{
 				InputTokens:     inputTokens,
 				OutputTokens:    outputTokens,

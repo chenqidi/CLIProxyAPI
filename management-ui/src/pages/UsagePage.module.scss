@@ -333,7 +333,7 @@
   font-style: italic;
 }
 
-// API List (80%比例)
+// API list (80% width ratio)
 .apiSortBar {
   display: flex;
   flex-wrap: wrap;
@@ -505,7 +505,7 @@
   overscroll-behavior: contain;
 }
 
-// Table (80%比例)
+// Table (80% width ratio)
 .tableWrapper {
   overflow-x: auto;
 }
@@ -596,7 +596,7 @@
   white-space: nowrap;
 }
 
-// Pricing Section (80%比例)
+// Pricing section (80% width ratio)
 .pricingSection {
   display: flex;
   flex-direction: column;
@@ -635,12 +635,12 @@
     font-weight: 500;
   }
 
-  // 确保 Input 组件的 form-group 包装器不影响布局
+  // Ensure the Input component form-group wrapper does not affect layout.
   :global(.form-group) {
     margin: 0;
 
     > label {
-      display: none; // 隐藏 Input 自带的 label，使用外层的
+      display: none; // Hide the Input label and use the outer label.
     }
   }
 
@@ -724,7 +724,7 @@
   gap: 12px;
 }
 
-// Chart Section (80%比例)
+// Chart section (80% width ratio)
 .chartSection {
   display: flex;
   flex-direction: column;
@@ -815,7 +815,7 @@
   overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
 
-  // Chart.js 默认会设置 canvas 的 touch-action: none，导致移动端无法横向滚动
+  // Chart.js sets canvas touch-action: none by default, which blocks horizontal scrolling on mobile.
   :global(canvas) {
     touch-action: pan-x pan-y !important;
   }
@@ -950,6 +950,48 @@
   font-size: 11px;
   font-weight: 600;
   white-space: nowrap;
+}
+
+.requestEventsCostCell {
+  white-space: nowrap;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.requestEventsPerfStack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 148px;
+}
+
+.requestEventsPerfPill,
+.requestEventsPerfPillSuccess {
+  display: inline-flex;
+  align-items: center;
+  width: max-content;
+  max-width: 100%;
+  padding: 2px 9px;
+  border-radius: $radius-full;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1.35;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.requestEventsPerfPill {
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+}
+
+.requestEventsPerfPillSuccess {
+  color: var(--success-badge-text, #065f46);
+  background: var(--success-badge-bg, #d1fae5);
+  border: 1px solid var(--success-badge-border, #6ee7b7);
 }
 
 .chartLineHeader {

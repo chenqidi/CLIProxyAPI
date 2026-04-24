@@ -81,12 +81,13 @@ type modelStats struct {
 
 // RequestDetail stores the timestamp, latency, and token usage for a single request.
 type RequestDetail struct {
-	Timestamp time.Time  `json:"timestamp"`
-	LatencyMs int64      `json:"latency_ms"`
-	Source    string     `json:"source"`
-	AuthIndex string     `json:"auth_index"`
-	Tokens    TokenStats `json:"tokens"`
-	Failed    bool       `json:"failed"`
+	Timestamp           time.Time  `json:"timestamp"`
+	LatencyMs           int64      `json:"latency_ms"`
+	FirstTokenLatencyMs int64      `json:"first_token_latency_ms"`
+	Source              string     `json:"source"`
+	AuthIndex           string     `json:"auth_index"`
+	Tokens              TokenStats `json:"tokens"`
+	Failed              bool       `json:"failed"`
 }
 
 // TokenStats captures the token usage breakdown for a request.
@@ -211,12 +212,13 @@ func (s *RequestStatistics) recordUsageEvent(event UsageEvent) {
 	}
 
 	s.updateAPIStats(stats, event.Model, RequestDetail{
-		Timestamp: event.RequestedAt,
-		LatencyMs: event.LatencyMs,
-		Source:    event.Source,
-		AuthIndex: event.AuthIndex,
-		Tokens:    event.Tokens,
-		Failed:    event.Failed,
+		Timestamp:           event.RequestedAt,
+		LatencyMs:           event.LatencyMs,
+		FirstTokenLatencyMs: event.FirstTokenLatencyMs,
+		Source:              event.Source,
+		AuthIndex:           event.AuthIndex,
+		Tokens:              event.Tokens,
+		Failed:              event.Failed,
 	})
 
 	dayKey := event.RequestedAt.Format("2006-01-02")

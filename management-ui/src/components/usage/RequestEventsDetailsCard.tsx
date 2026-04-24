@@ -10,7 +10,11 @@ import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@
 import type { AuthFileItem } from '@/types/authFile';
 import type { CredentialInfo } from '@/types/sourceInfo';
 import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
-import { normalizeAuthIndex } from '@/utils/usage';
+import {
+  calculateTokenCostForModel,
+  normalizeAuthIndex,
+  type ModelPrice
+} from '@/utils/usage';
 import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
@@ -28,6 +32,14 @@ type RequestEventRow = {
   sourceType: string;
   authIndex: string;
   failed: boolean;
+  cost: number;
+  costLabel: string;
+  latencyMs: number;
+  latencyLabel: string;
+  firstTokenLatencyMs: number;
+  firstTokenLabel: string;
+  outputRate: number | null;
+  outputRateLabel: string;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -43,6 +55,7 @@ export interface RequestEventsDetailsCardProps {
   codexConfigs: ProviderKeyConfig[];
   vertexConfigs: ProviderKeyConfig[];
   openaiProviders: OpenAIProviderConfig[];
+  modelPrices: Record<string, ModelPrice>;
 }
 
 const encodeCsv = (value: string | number): string => {
@@ -52,6 +65,46 @@ const encodeCsv = (value: string | number): string => {
   return `"${safeText.replace(/"/g, '""')}"`;
 };
 
+const formatPreciseUsd = (value: number): string => {
+  if (!Number.isFinite(value) || value <= 0) return '--';
+  if (value < 0.000001) return '<$0.000001';
+  if (value < 1) return `$${value.toFixed(6)}`;
+  return `$${value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  })}`;
+};
+
+const formatDurationMs = (value: number): string => {
+  if (!Number.isFinite(value) || value <= 0) return '--';
+  if (value < 1000) return `${Math.round(value)}ms`;
+
+  const seconds = value / 1000;
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = Math.round(seconds % 60);
+  if (remainingSeconds <= 0) return `${minutes}m`;
+  return `${minutes}m ${remainingSeconds}s`;
+};
+
+const calculateOutputRate = (outputTokens: number, latencyMs: number): number | null => {
+  if (outputTokens <= 0 || latencyMs <= 0) return null;
+
+  const totalSeconds = latencyMs / 1000;
+  if (!Number.isFinite(totalSeconds) || totalSeconds <= 0) return null;
+
+  const rate = outputTokens / totalSeconds;
+  return Number.isFinite(rate) && rate > 0 ? rate : null;
+};
+
+const formatOutputRate = (value: number | null): string => {
+  if (value === null || !Number.isFinite(value) || value <= 0) return '--';
+  const formatted = value >= 100 ? value.toFixed(0) : value.toFixed(1);
+  return `${formatted} tps`;
+};
+
 export function RequestEventsDetailsCard({
   events,
   loading,
@@ -59,7 +112,8 @@ export function RequestEventsDetailsCard({
   claudeConfigs,
   codexConfigs,
   vertexConfigs,
-  openaiProviders
+  openaiProviders,
+  modelPrices
 }: RequestEventsDetailsCardProps) {
   const { t, i18n } = useTranslation();
 
@@ -116,26 +170,49 @@ export function RequestEventsDetailsCard({
         const sourceRaw = String(item.source ?? '').trim() || '-';
         const authIndex = normalizeAuthIndex(item.authIndex) ?? '-';
         const sourceInfo = resolveSourceDisplay(sourceRaw, item.authIndex, sourceInfoMap, authFileMap);
+        const model = item.model || '-';
+        const inputTokens = Math.max(item.tokens.inputTokens, 0);
+        const outputTokens = Math.max(item.tokens.outputTokens, 0);
+        const reasoningTokens = Math.max(item.tokens.reasoningTokens, 0);
+        const cachedTokens = Math.max(item.tokens.cachedTokens, 0);
+        const totalTokens = Math.max(item.tokens.totalTokens, 0);
+        const latencyMs = Math.max(item.latencyMs, 0);
+        const firstTokenLatencyMs = Math.max(item.firstTokenLatencyMs, 0);
+        const cost = calculateTokenCostForModel(
+          model,
+          { inputTokens, outputTokens, cachedTokens },
+          modelPrices
+        );
+        const outputRate = calculateOutputRate(outputTokens, latencyMs);
+
         return {
           id: `${timestamp}-${item.model}-${sourceRaw}-${authIndex}-${index}`,
           timestamp,
           timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
           timestampLabel: date ? date.toLocaleString(i18n.language) : timestamp || '-',
-          model: item.model || '-',
+          model,
           sourceRaw,
           source: sourceInfo.displayName,
           sourceType: sourceInfo.type,
           authIndex,
           failed: item.failed === true,
-          inputTokens: Math.max(item.tokens.inputTokens, 0),
-          outputTokens: Math.max(item.tokens.outputTokens, 0),
-          reasoningTokens: Math.max(item.tokens.reasoningTokens, 0),
-          cachedTokens: Math.max(item.tokens.cachedTokens, 0),
-          totalTokens: Math.max(item.tokens.totalTokens, 0)
+          cost,
+          costLabel: formatPreciseUsd(cost),
+          latencyMs,
+          latencyLabel: formatDurationMs(latencyMs),
+          firstTokenLatencyMs,
+          firstTokenLabel: formatDurationMs(firstTokenLatencyMs),
+          outputRate,
+          outputRateLabel: formatOutputRate(outputRate),
+          inputTokens,
+          outputTokens,
+          reasoningTokens,
+          cachedTokens,
+          totalTokens
         };
       })
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [authFileMap, events, i18n.language, sourceInfoMap]);
+  }, [authFileMap, events, i18n.language, modelPrices, sourceInfoMap]);
 
   const modelOptions = useMemo(
     () => [
@@ -218,6 +295,10 @@ export function RequestEventsDetailsCard({
       'source_raw',
       'auth_index',
       'result',
+      'cost_usd',
+      'first_token_latency_ms',
+      'latency_ms',
+      'output_tokens_per_second',
       'input_tokens',
       'output_tokens',
       'reasoning_tokens',
@@ -233,6 +314,10 @@ export function RequestEventsDetailsCard({
         row.sourceRaw,
         row.authIndex,
         row.failed ? 'failed' : 'success',
+        row.cost > 0 ? row.cost : '',
+        row.firstTokenLatencyMs || '',
+        row.latencyMs || '',
+        row.outputRate ?? '',
         row.inputTokens,
         row.outputTokens,
         row.reasoningTokens,
@@ -261,6 +346,10 @@ export function RequestEventsDetailsCard({
       source_raw: row.sourceRaw,
       auth_index: row.authIndex,
       failed: row.failed,
+      cost_usd: row.cost > 0 ? row.cost : null,
+      first_token_latency_ms: row.firstTokenLatencyMs || null,
+      latency_ms: row.latencyMs || null,
+      output_tokens_per_second: row.outputRate,
       tokens: {
         input_tokens: row.inputTokens,
         output_tokens: row.outputTokens,
@@ -387,6 +476,8 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.request_events_source')}</th>
                   <th>{t('usage_stats.request_events_auth_index')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
+                  <th>{t('usage_stats.request_events_cost')}</th>
+                  <th>{t('usage_stats.request_events_perf')}</th>
                   <th>{t('usage_stats.input_tokens')}</th>
                   <th>{t('usage_stats.output_tokens')}</th>
                   <th>{t('usage_stats.reasoning_tokens')}</th>
@@ -416,6 +507,20 @@ export function RequestEventsDetailsCard({
                       >
                         {row.failed ? t('stats.failure') : t('stats.success')}
                       </span>
+                    </td>
+                    <td className={styles.requestEventsCostCell}>{row.costLabel}</td>
+                    <td>
+                      <div className={styles.requestEventsPerfStack}>
+                        <span className={styles.requestEventsPerfPillSuccess}>
+                          {t('usage_stats.request_events_first_token')}: {row.firstTokenLabel}
+                        </span>
+                        <span className={styles.requestEventsPerfPill}>
+                          {t('usage_stats.request_events_latency')}: {row.latencyLabel}
+                        </span>
+                        <span className={styles.requestEventsPerfPill}>
+                          {t('usage_stats.request_events_output_rate')}: {row.outputRateLabel}
+                        </span>
+                      </div>
                     </td>
                     <td>{row.inputTokens.toLocaleString()}</td>
                     <td>{row.outputTokens.toLocaleString()}</td>

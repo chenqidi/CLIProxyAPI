@@ -10,6 +10,7 @@ config.yaml
 bin/*
 logs/*
 usage-data/*
+usage/*
 conv/*
 temp/*
 refs/*
@@ -26,7 +27,7 @@ static/*
 # Authentication data
 auths/*
 !auths/.gitkeep
-!usage-data/.gitkeep
+!usage/.gitkeep
 
 # Documentation
 docs/*

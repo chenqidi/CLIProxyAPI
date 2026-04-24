@@ -11,10 +11,11 @@ import (
 func TestRequestStatisticsRecordIncludesLatency(t *testing.T) {
 	stats := NewRequestStatistics()
 	stats.Record(context.Background(), coreusage.Record{
-		APIKey:      "test-key",
-		Model:       "gpt-5.4",
-		RequestedAt: time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC),
-		Latency:     1500 * time.Millisecond,
+		APIKey:            "test-key",
+		Model:             "gpt-5.4",
+		RequestedAt:       time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC),
+		Latency:           1500 * time.Millisecond,
+		FirstTokenLatency: 320 * time.Millisecond,
 		Detail: coreusage.Detail{
 			InputTokens:  10,
 			OutputTokens: 20,
@@ -29,6 +30,9 @@ func TestRequestStatisticsRecordIncludesLatency(t *testing.T) {
 	}
 	if details[0].LatencyMs != 1500 {
 		t.Fatalf("latency_ms = %d, want 1500", details[0].LatencyMs)
+	}
+	if details[0].FirstTokenLatencyMs != 320 {
+		t.Fatalf("first_token_latency_ms = %d, want 320", details[0].FirstTokenLatencyMs)
 	}
 }
 

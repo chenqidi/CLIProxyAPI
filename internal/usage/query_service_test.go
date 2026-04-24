@@ -33,17 +33,18 @@ func TestQueryServiceSummaryChartsAndEvents(t *testing.T) {
 		Tokens:        TokenStats{InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
 	})
 	seedUsageEvent(t, repo, UsageEvent{
-		RequestedAt:   now.Add(-10 * time.Minute),
-		Provider:      "codex",
-		Model:         "gpt-5.4-mini",
-		APIKey:        "key-b",
-		RequestMethod: "POST",
-		RequestPath:   "/v1/messages",
-		AuthIndex:     "2",
-		Source:        "source-b",
-		Failed:        true,
-		LatencyMs:     800,
-		Tokens:        TokenStats{InputTokens: 5, OutputTokens: 5, CachedTokens: 2, ReasoningTokens: 1, TotalTokens: 11},
+		RequestedAt:         now.Add(-10 * time.Minute),
+		Provider:            "codex",
+		Model:               "gpt-5.4-mini",
+		APIKey:              "key-b",
+		RequestMethod:       "POST",
+		RequestPath:         "/v1/messages",
+		AuthIndex:           "2",
+		Source:              "source-b",
+		Failed:              true,
+		LatencyMs:           800,
+		FirstTokenLatencyMs: 250,
+		Tokens:              TokenStats{InputTokens: 5, OutputTokens: 5, CachedTokens: 2, ReasoningTokens: 1, TotalTokens: 11},
 	})
 	seedUsageEvent(t, repo, UsageEvent{
 		RequestedAt:   now.Add(-26 * time.Hour),
@@ -147,6 +148,9 @@ func TestQueryServiceSummaryChartsAndEvents(t *testing.T) {
 	}
 	if events.Items[0].RequestMethod != "POST" || events.Items[0].RequestPath != "/v1/messages" {
 		t.Fatalf("event request identity = %+v, want POST /v1/messages", events.Items[0])
+	}
+	if events.Items[0].FirstTokenLatencyMs != 250 {
+		t.Fatalf("event first_token_latency_ms = %d, want 250", events.Items[0].FirstTokenLatencyMs)
 	}
 }
 

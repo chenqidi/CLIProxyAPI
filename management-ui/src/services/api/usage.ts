@@ -1,5 +1,5 @@
 /**
- * 使用统计相关 API
+ * Usage statistics API helpers
  */
 
 import { apiClient } from './client';
@@ -129,6 +129,7 @@ interface UsageEventItemResponse {
   auth_index?: string;
   source?: string;
   latency_ms?: number;
+  first_token_latency_ms?: number;
   failed?: boolean;
   tokens?: UsageEventTokensResponse;
 }
@@ -210,6 +211,7 @@ export interface UsageEventItem {
   authIndex: string;
   source: string;
   latencyMs: number;
+  firstTokenLatencyMs: number;
   failed: boolean;
   tokens: UsageEventTokens;
 }
@@ -483,6 +485,7 @@ const adaptUsageEventItem = (value: unknown): UsageEventItem => {
     authIndex: normalizeAuthIndex(record?.auth_index) ?? '',
     source: rawSource ? normalizeUsageSourceId(rawSource) : '',
     latencyMs: toCount(record?.latency_ms),
+    firstTokenLatencyMs: toCount(record?.first_token_latency_ms),
     failed: toBoolean(record?.failed),
     tokens: adaptUsageEventTokens(record?.tokens),
   };
@@ -516,7 +519,7 @@ const buildUsageEventsParams = (query: UsageEventsQuery) => ({
 
 export const usageApi = {
   /**
-   * 获取轻量 status 概览
+   * Get the lightweight status overview.
    */
   async getUsageStatus(params: UsageStatusQuery = {}): Promise<UsageStatusOverview> {
     const response = await apiClient.get<UsageStatusOverviewResponse>('/usage/status', {
@@ -527,7 +530,7 @@ export const usageApi = {
   },
 
   /**
-   * 获取 summary 概览
+   * Get the summary overview.
    */
   async getUsageSummary(params: UsageRangeQuery = {}): Promise<UsageSummaryData> {
     const response = await apiClient.get<UsageSummaryResponse>('/usage/summary', {
@@ -538,7 +541,7 @@ export const usageApi = {
   },
 
   /**
-   * 获取 7x96 健康网格
+   * Get the 7x96 health grid.
    */
   async getUsageHealth(params: UsageRangeQuery = {}): Promise<UsageHealthData> {
     const response = await apiClient.get<UsageHealthResponse>('/usage/health', {
@@ -549,7 +552,7 @@ export const usageApi = {
   },
 
   /**
-   * 获取 chart 系列
+   * Get chart series.
    */
   async getUsageChart(params: UsageChartQuery): Promise<UsageChartData> {
     const response = await apiClient.get<UsageChartResponse>('/usage/charts', {
@@ -560,7 +563,7 @@ export const usageApi = {
   },
 
   /**
-   * 获取轻量事件列表
+   * Get the lightweight event list.
    */
   async getUsageEvents(params: UsageEventsQuery = {}): Promise<UsageEventsPageData> {
     const response = await apiClient.get<UsageEventsPageResponse>('/usage/events', {
@@ -571,25 +574,25 @@ export const usageApi = {
   },
 
   /**
-   * 导出使用统计快照
+   * Export a usage statistics snapshot.
    */
   exportUsage: () =>
     apiClient.get<UsageExportPayload>('/usage/export', { timeout: USAGE_TIMEOUT_MS }),
 
   /**
-   * 导入使用统计快照
+   * Import a usage statistics snapshot.
    */
   importUsage: (payload: unknown) =>
     apiClient.post<UsageImportResponse>('/usage/import', payload, { timeout: USAGE_TIMEOUT_MS }),
 
   /**
-   * 更新服务端保存的模型价格覆盖
+   * Update server-side model price overrides.
    */
   updateModelPrices: (prices: Record<string, ModelPrice>) =>
     apiClient.put('/usage-model-prices', prices, { timeout: USAGE_TIMEOUT_MS }),
 
   /**
-   * 更新服务端保存的模型价格默认选择
+   * Update the server-side default model price selection.
    */
   updateSelectedModel: (model: string) =>
     apiClient.put('/usage-price-selected-model', { value: model }, { timeout: USAGE_TIMEOUT_MS }),

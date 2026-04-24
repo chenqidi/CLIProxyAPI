@@ -3,6 +3,7 @@ package usage
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	log "github.com/sirupsen/logrus"
@@ -10,16 +11,17 @@ import (
 
 // Record contains the usage statistics captured for a single provider request.
 type Record struct {
-	Provider    string
-	Model       string
-	APIKey      string
-	AuthID      string
-	AuthIndex   string
-	Source      string
-	RequestedAt time.Time
-	Latency     time.Duration
-	Failed      bool
-	Detail      Detail
+	Provider          string
+	Model             string
+	APIKey            string
+	AuthID            string
+	AuthIndex         string
+	Source            string
+	RequestedAt       time.Time
+	Latency           time.Duration
+	FirstTokenLatency time.Duration
+	Failed            bool
+	Detail            Detail
 }
 
 // Detail holds the token usage breakdown.
@@ -29,6 +31,61 @@ type Detail struct {
 	ReasoningTokens int64
 	CachedTokens    int64
 	TotalTokens     int64
+}
+
+type streamTimingContextKey struct{}
+
+type streamTimings struct {
+	startedAt          time.Time
+	firstPayloadUnixNs atomic.Int64
+}
+
+// WithStreamTimings returns a context that tracks downstream-visible streaming timings.
+func WithStreamTimings(ctx context.Context, startedAt time.Time) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if startedAt.IsZero() {
+		startedAt = time.Now()
+	}
+	return context.WithValue(ctx, streamTimingContextKey{}, &streamTimings{startedAt: startedAt})
+}
+
+// MarkFirstStreamPayload records the first downstream-visible streaming payload time.
+func MarkFirstStreamPayload(ctx context.Context) {
+	timings := streamTimingsFromContext(ctx)
+	if timings == nil || timings.startedAt.IsZero() {
+		return
+	}
+	timings.firstPayloadUnixNs.CompareAndSwap(0, time.Now().UnixNano())
+}
+
+// FirstTokenLatencyFromContext returns the recorded first streaming payload latency.
+func FirstTokenLatencyFromContext(ctx context.Context) time.Duration {
+	timings := streamTimingsFromContext(ctx)
+	if timings == nil || timings.startedAt.IsZero() {
+		return 0
+	}
+	firstPayloadUnixNs := timings.firstPayloadUnixNs.Load()
+	if firstPayloadUnixNs <= 0 {
+		return 0
+	}
+	latency := time.Unix(0, firstPayloadUnixNs).Sub(timings.startedAt)
+	if latency < 0 {
+		return 0
+	}
+	return latency
+}
+
+func streamTimingsFromContext(ctx context.Context) *streamTimings {
+	if ctx == nil {
+		return nil
+	}
+	timings, ok := ctx.Value(streamTimingContextKey{}).(*streamTimings)
+	if !ok {
+		return nil
+	}
+	return timings
 }
 
 // Plugin consumes usage records emitted by the proxy runtime.

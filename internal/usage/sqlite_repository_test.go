@@ -37,14 +37,15 @@ func TestSQLiteRepositorySnapshotAndRetention(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Millisecond)
 
 	recent := UsageEvent{
-		RequestedAt: now,
-		Provider:    "codex",
-		Model:       "gpt-5.4",
-		APIKey:      "test-key",
-		AuthID:      "auth-1",
-		AuthIndex:   "0",
-		Source:      "user@example.com",
-		LatencyMs:   1500,
+		RequestedAt:         now,
+		Provider:            "codex",
+		Model:               "gpt-5.4",
+		APIKey:              "test-key",
+		AuthID:              "auth-1",
+		AuthIndex:           "0",
+		Source:              "user@example.com",
+		LatencyMs:           1500,
+		FirstTokenLatencyMs: 420,
 		Tokens: TokenStats{
 			InputTokens:  10,
 			OutputTokens: 20,
@@ -87,6 +88,9 @@ func TestSQLiteRepositorySnapshotAndRetention(t *testing.T) {
 	}
 	if details[0].LatencyMs != 1500 {
 		t.Fatalf("detail latency = %d, want 1500", details[0].LatencyMs)
+	}
+	if details[0].FirstTokenLatencyMs != 420 {
+		t.Fatalf("detail first_token_latency_ms = %d, want 420", details[0].FirstTokenLatencyMs)
 	}
 }
 
@@ -213,10 +217,11 @@ func TestLoggerPluginWritesToRepository(t *testing.T) {
 	t.Cleanup(func() { SetStatisticsEnabled(true) })
 
 	plugin.HandleUsage(context.Background(), coreusage.Record{
-		APIKey:      "plugin-key",
-		Model:       "gpt-5.4",
-		RequestedAt: time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
-		Latency:     1500 * time.Millisecond,
+		APIKey:            "plugin-key",
+		Model:             "gpt-5.4",
+		RequestedAt:       time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
+		Latency:           1500 * time.Millisecond,
+		FirstTokenLatency: 250 * time.Millisecond,
 		Detail: coreusage.Detail{
 			InputTokens:  10,
 			OutputTokens: 20,
@@ -231,5 +236,8 @@ func TestLoggerPluginWritesToRepository(t *testing.T) {
 	}
 	if details[0].LatencyMs != 1500 {
 		t.Fatalf("latency_ms = %d, want 1500", details[0].LatencyMs)
+	}
+	if details[0].FirstTokenLatencyMs != 250 {
+		t.Fatalf("first_token_latency_ms = %d, want 250", details[0].FirstTokenLatencyMs)
 	}
 }

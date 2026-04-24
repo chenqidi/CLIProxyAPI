@@ -12,18 +12,19 @@ import (
 // UsageEvent represents a normalized usage event ready for persistence.
 type UsageEvent struct {
 	RequestedAt   time.Time
-	Provider      string
-	Model         string
-	APIKey        string
-	RequestMethod string
-	RequestPath   string
-	AuthID        string
-	AuthIndex     string
-	Source        string
-	LatencyMs     int64
-	Failed        bool
-	Tokens        TokenStats
-	DedupKey      string
+	Provider            string
+	Model               string
+	APIKey              string
+	RequestMethod       string
+	RequestPath         string
+	AuthID              string
+	AuthIndex           string
+	Source              string
+	LatencyMs           int64
+	FirstTokenLatencyMs int64
+	Failed              bool
+	Tokens              TokenStats
+	DedupKey            string
 }
 
 // Repository persists usage events and can reconstruct compatibility snapshots.
@@ -56,18 +57,19 @@ func NewUsageEvent(ctx context.Context, record coreusage.Record) UsageEvent {
 	}
 
 	event := UsageEvent{
-		RequestedAt:   timestamp,
-		Provider:      strings.TrimSpace(record.Provider),
-		Model:         strings.TrimSpace(record.Model),
-		APIKey:        apiKey,
-		RequestMethod: requestMethod,
-		RequestPath:   requestPath,
-		AuthID:        strings.TrimSpace(record.AuthID),
-		AuthIndex:     strings.TrimSpace(record.AuthIndex),
-		Source:        strings.TrimSpace(record.Source),
-		LatencyMs:     normaliseLatency(record.Latency),
-		Failed:        failed,
-		Tokens:        normaliseDetail(record.Detail),
+		RequestedAt:         timestamp,
+		Provider:            strings.TrimSpace(record.Provider),
+		Model:               strings.TrimSpace(record.Model),
+		APIKey:              apiKey,
+		RequestMethod:       requestMethod,
+		RequestPath:         requestPath,
+		AuthID:              strings.TrimSpace(record.AuthID),
+		AuthIndex:           strings.TrimSpace(record.AuthIndex),
+		Source:              strings.TrimSpace(record.Source),
+		LatencyMs:           normaliseLatency(record.Latency),
+		FirstTokenLatencyMs: normaliseLatency(record.FirstTokenLatency),
+		Failed:              failed,
+		Tokens:              normaliseDetail(record.Detail),
 	}
 	return normaliseUsageEvent(event)
 }
@@ -81,16 +83,17 @@ func ImportedUsageEvent(apiName, modelName string, detail RequestDetail) (UsageE
 	requestMethod, requestPath := parseCompatibilityEndpoint(apiName)
 
 	event := UsageEvent{
-		RequestedAt:   detail.Timestamp.UTC(),
-		Model:         strings.TrimSpace(modelName),
-		APIKey:        apiName,
-		RequestMethod: requestMethod,
-		RequestPath:   requestPath,
-		AuthIndex:     strings.TrimSpace(detail.AuthIndex),
-		Source:        strings.TrimSpace(detail.Source),
-		LatencyMs:     detail.LatencyMs,
-		Failed:        detail.Failed,
-		Tokens:        normaliseTokenStats(detail.Tokens),
+		RequestedAt:         detail.Timestamp.UTC(),
+		Model:               strings.TrimSpace(modelName),
+		APIKey:              apiName,
+		RequestMethod:       requestMethod,
+		RequestPath:         requestPath,
+		AuthIndex:           strings.TrimSpace(detail.AuthIndex),
+		Source:              strings.TrimSpace(detail.Source),
+		LatencyMs:           detail.LatencyMs,
+		FirstTokenLatencyMs: detail.FirstTokenLatencyMs,
+		Failed:              detail.Failed,
+		Tokens:              normaliseTokenStats(detail.Tokens),
 	}
 	if event.RequestedAt.IsZero() {
 		event.RequestedAt = time.Now().UTC()
@@ -133,6 +136,9 @@ func normaliseUsageEvent(event UsageEvent) UsageEvent {
 	event.Source = strings.TrimSpace(event.Source)
 	if event.LatencyMs < 0 {
 		event.LatencyMs = 0
+	}
+	if event.FirstTokenLatencyMs < 0 {
+		event.FirstTokenLatencyMs = 0
 	}
 	if event.Tokens.TotalTokens < 0 {
 		event.Tokens.TotalTokens = 0

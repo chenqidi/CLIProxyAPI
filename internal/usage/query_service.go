@@ -139,18 +139,19 @@ type UsageEventsQuery struct {
 
 // UsageEventItem is the lightweight event row returned to the management UI.
 type UsageEventItem struct {
-	Timestamp     time.Time  `json:"timestamp"`
-	Provider      string     `json:"provider"`
-	Model         string     `json:"model"`
-	APIKey        string     `json:"api_key"`
-	RequestMethod string     `json:"request_method"`
-	RequestPath   string     `json:"request_path"`
-	AuthID        string     `json:"auth_id"`
-	AuthIndex     string     `json:"auth_index"`
-	Source        string     `json:"source"`
-	LatencyMs     int64      `json:"latency_ms"`
-	Failed        bool       `json:"failed"`
-	Tokens        TokenStats `json:"tokens"`
+	Timestamp           time.Time  `json:"timestamp"`
+	Provider            string     `json:"provider"`
+	Model               string     `json:"model"`
+	APIKey              string     `json:"api_key"`
+	RequestMethod       string     `json:"request_method"`
+	RequestPath         string     `json:"request_path"`
+	AuthID              string     `json:"auth_id"`
+	AuthIndex           string     `json:"auth_index"`
+	Source              string     `json:"source"`
+	LatencyMs           int64      `json:"latency_ms"`
+	FirstTokenLatencyMs int64      `json:"first_token_latency_ms"`
+	Failed              bool       `json:"failed"`
+	Tokens              TokenStats `json:"tokens"`
 }
 
 // UsageEventsPage returns paginated request events.
@@ -667,6 +668,7 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 		auth_index,
 		source,
 		latency_ms,
+		first_token_latency_ms,
 		failed,
 		input_tokens,
 		output_tokens,
@@ -684,22 +686,23 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 
 	for rows.Next() {
 		var (
-			requestedAtNS   int64
-			provider        string
-			model           string
-			apiKey          string
-			requestMethod   string
-			requestPath     string
-			authID          string
-			authIndex       string
-			source          string
-			latencyMs       int64
-			failedInt       int
-			inputTokens     int64
-			outputTokens    int64
-			reasoningTokens int64
-			cachedTokens    int64
-			totalTokens     int64
+			requestedAtNS       int64
+			provider            string
+			model               string
+			apiKey              string
+			requestMethod       string
+			requestPath         string
+			authID              string
+			authIndex           string
+			source              string
+			latencyMs           int64
+			firstTokenLatencyMs int64
+			failedInt           int
+			inputTokens         int64
+			outputTokens        int64
+			reasoningTokens     int64
+			cachedTokens        int64
+			totalTokens         int64
 		)
 		if err := rows.Scan(
 			&requestedAtNS,
@@ -712,6 +715,7 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 			&authIndex,
 			&source,
 			&latencyMs,
+			&firstTokenLatencyMs,
 			&failedInt,
 			&inputTokens,
 			&outputTokens,
@@ -731,17 +735,18 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 			requestPath = legacyPath
 		}
 		result.Items = append(result.Items, UsageEventItem{
-			Timestamp:     time.Unix(0, requestedAtNS).UTC(),
-			Provider:      strings.TrimSpace(provider),
-			Model:         strings.TrimSpace(model),
-			APIKey:        strings.TrimSpace(apiKey),
-			RequestMethod: requestMethod,
-			RequestPath:   requestPath,
-			AuthID:        strings.TrimSpace(authID),
-			AuthIndex:     strings.TrimSpace(authIndex),
-			Source:        strings.TrimSpace(source),
-			LatencyMs:     latencyMs,
-			Failed:        failedInt != 0,
+			Timestamp:           time.Unix(0, requestedAtNS).UTC(),
+			Provider:            strings.TrimSpace(provider),
+			Model:               strings.TrimSpace(model),
+			APIKey:              strings.TrimSpace(apiKey),
+			RequestMethod:       requestMethod,
+			RequestPath:         requestPath,
+			AuthID:              strings.TrimSpace(authID),
+			AuthIndex:           strings.TrimSpace(authIndex),
+			Source:              strings.TrimSpace(source),
+			LatencyMs:           latencyMs,
+			FirstTokenLatencyMs: firstTokenLatencyMs,
+			Failed:              failedInt != 0,
 			Tokens: normaliseTokenStats(TokenStats{
 				InputTokens:     inputTokens,
 				OutputTokens:    outputTokens,

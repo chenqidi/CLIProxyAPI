@@ -70,7 +70,7 @@ func (r *UsageReporter) publishWithOutcome(ctx context.Context, detail usage.Det
 		}
 	}
 	r.once.Do(func() {
-		usage.PublishRecord(ctx, r.buildRecord(detail, failed))
+		usage.PublishRecord(ctx, r.buildRecord(ctx, detail, failed))
 	})
 }
 
@@ -83,25 +83,26 @@ func (r *UsageReporter) EnsurePublished(ctx context.Context) {
 		return
 	}
 	r.once.Do(func() {
-		usage.PublishRecord(ctx, r.buildRecord(usage.Detail{}, false))
+		usage.PublishRecord(ctx, r.buildRecord(ctx, usage.Detail{}, false))
 	})
 }
 
-func (r *UsageReporter) buildRecord(detail usage.Detail, failed bool) usage.Record {
+func (r *UsageReporter) buildRecord(ctx context.Context, detail usage.Detail, failed bool) usage.Record {
 	if r == nil {
 		return usage.Record{Detail: detail, Failed: failed}
 	}
 	return usage.Record{
-		Provider:    r.provider,
-		Model:       r.model,
-		Source:      r.source,
-		APIKey:      r.apiKey,
-		AuthID:      r.authID,
-		AuthIndex:   r.authIndex,
-		RequestedAt: r.requestedAt,
-		Latency:     r.latency(),
-		Failed:      failed,
-		Detail:      detail,
+		Provider:          r.provider,
+		Model:             r.model,
+		Source:            r.source,
+		APIKey:            r.apiKey,
+		AuthID:            r.authID,
+		AuthIndex:         r.authIndex,
+		RequestedAt:       r.requestedAt,
+		Latency:           r.latency(),
+		FirstTokenLatency: usage.FirstTokenLatencyFromContext(ctx),
+		Failed:            failed,
+		Detail:            detail,
 	}
 }
 

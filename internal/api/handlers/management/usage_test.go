@@ -95,17 +95,18 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 		},
 	})
 	seedUsageHandlerEvent(t, repo, usage.UsageEvent{
-		RequestedAt:   now.Add(-5 * time.Minute),
-		Provider:      "codex",
-		Model:         "gpt-5.4-mini",
-		APIKey:        "key-c",
-		RequestMethod: "POST",
-		RequestPath:   "/v1/messages",
-		AuthID:        "auth-c",
-		AuthIndex:     "2",
-		Source:        "source-b",
-		LatencyMs:     700,
-		Failed:        true,
+		RequestedAt:         now.Add(-5 * time.Minute),
+		Provider:            "codex",
+		Model:               "gpt-5.4-mini",
+		APIKey:              "key-c",
+		RequestMethod:       "POST",
+		RequestPath:         "/v1/messages",
+		AuthID:              "auth-c",
+		AuthIndex:           "2",
+		Source:              "source-b",
+		LatencyMs:           700,
+		FirstTokenLatencyMs: 180,
+		Failed:              true,
 		Tokens: usage.TokenStats{
 			InputTokens:  3,
 			OutputTokens: 4,
@@ -219,6 +220,9 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 	}
 	if events.Items[0].RequestMethod != "POST" || events.Items[0].RequestPath != "/v1/messages" {
 		t.Fatalf("unexpected request identity: %+v", events.Items[0])
+	}
+	if events.Items[0].FirstTokenLatencyMs != 180 {
+		t.Fatalf("events first_token_latency_ms = %d, want 180", events.Items[0].FirstTokenLatencyMs)
 	}
 }
 
