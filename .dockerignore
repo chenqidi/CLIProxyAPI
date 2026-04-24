@@ -19,6 +19,11 @@ LICENSE
 auths/*
 logs/*
 conv/*
+usage-data/*
+usage/*
+*.sqlite
+*.sqlite-*
+*.db
 config.yaml
 
 # Development/editor
