@@ -1,0 +1,108 @@
+@use '../../styles/variables.scss' as *;
+
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: $spacing-sm;
+  flex-wrap: wrap;
+  margin-top: $spacing-lg;
+  padding-top: $spacing-md;
+  border-top: 1px solid var(--border-color);
+}
+
+.edgeLink,
+.pageLink {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition: color $transition-fast, background-color $transition-fast, box-shadow $transition-fast;
+
+  &:hover:not(:disabled) {
+    color: var(--primary-color);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  &:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba($primary-color, 0.18);
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.48;
+    text-decoration: none;
+  }
+}
+
+.edgeLink {
+  padding: 8px 6px;
+}
+
+.pagePrefix {
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.pageList {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pageLink {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: $radius-full;
+  text-align: center;
+  color: var(--primary-color);
+
+  &:hover:not(:disabled) {
+    background-color: color-mix(in srgb, var(--primary-color) 8%, transparent);
+  }
+}
+
+.pageLinkActive {
+  color: var(--primary-color);
+  border-color: color-mix(in srgb, var(--primary-color) 42%, transparent);
+  background-color: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  opacity: 1;
+
+  &:disabled {
+    color: var(--primary-color);
+    cursor: default;
+    opacity: 1;
+  }
+}
+
+.ellipsis {
+  min-width: 24px;
+  color: var(--text-tertiary, var(--text-secondary));
+  text-align: center;
+  user-select: none;
+}
+
+@media (max-width: 640px) {
+  .pagination {
+    gap: $spacing-sm;
+  }
+
+  .pageList {
+    flex-basis: 100%;
+    justify-content: center;
+  }
+}

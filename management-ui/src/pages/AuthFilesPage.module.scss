@@ -1513,18 +1513,6 @@
   }
 }
 
-// 分页
-.pagination {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  gap: $spacing-md;
-  flex-wrap: wrap;
-  margin-top: $spacing-lg;
-  padding-top: $spacing-md;
-  border-top: 1px solid var(--border-color);
-}
-
 .batchActionContainer {
   position: fixed;
   left: var(--content-center-x, 50%);
@@ -1587,14 +1575,6 @@
   .batchActionRight {
     justify-content: center;
   }
-}
-
-.pageInfo {
-  font-size: 13px;
-  color: var(--text-secondary);
-  padding: $spacing-xs $spacing-md;
-  background-color: var(--bg-secondary);
-  border-radius: $radius-md;
 }
 
 // OAuth 模型禁用

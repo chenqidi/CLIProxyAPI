@@ -56,6 +56,16 @@
     "unsaved_changes_title": "未保存的更改",
     "unsaved_changes_message": "你有未保存的更改，离开后将丢失这些更改。确定要离开吗？"
   },
+  "pagination": {
+    "navigation": "分页导航",
+    "first": "首页",
+    "prev": "上一页",
+    "next": "下一页",
+    "last": "末页",
+    "page_prefix": "第",
+    "page_link_aria": "跳转到第 {{page}} 页",
+    "current_page_aria": "第 {{page}} 页，当前页"
+  },
   "title": {
     "main": "CLI Proxy API Management Center",
     "login": "CLI Proxy API Management Center",
@@ -505,9 +515,6 @@
     "delete_problem_none": "当前没有可删除的有问题认证文件",
     "delete_problem_filtered_none": "当前筛选类型 ({{type}}) 下没有可删除的有问题认证文件",
     "files_count": "个文件",
-    "pagination_prev": "上一页",
-    "pagination_next": "下一页",
-    "pagination_info": "第 {{current}} / {{total}} 页 · 共 {{count}} 个文件",
     "search_label": "搜索配置文件",
     "search_placeholder": "输入名称、类型或提供方关键字，支持 * 通配",
     "problem_filter_label": "问题筛选",

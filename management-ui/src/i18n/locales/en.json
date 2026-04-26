@@ -56,6 +56,16 @@
     "unsaved_changes_title": "Unsaved changes",
     "unsaved_changes_message": "You have unsaved changes. Leaving now will discard them. Do you want to leave?"
   },
+  "pagination": {
+    "navigation": "Pagination navigation",
+    "first": "First",
+    "prev": "Previous",
+    "next": "Next",
+    "last": "Last",
+    "page_prefix": "Page",
+    "page_link_aria": "Go to page {{page}}",
+    "current_page_aria": "Page {{page}}, current page"
+  },
   "title": {
     "main": "CLI Proxy API Management Center",
     "login": "CLI Proxy API Management Center",
@@ -505,9 +515,6 @@
     "delete_problem_none": "No deletable problematic auth files under the current filter",
     "delete_problem_filtered_none": "No deletable problematic {{type}} auth files under the current filter",
     "files_count": "files",
-    "pagination_prev": "Previous",
-    "pagination_next": "Next",
-    "pagination_info": "Page {{current}} / {{total}} · {{count}} files",
     "search_label": "Search configs",
     "search_placeholder": "Filter by name, type, or provider. Use * as a wildcard",
     "problem_filter_label": "Problem Filter",

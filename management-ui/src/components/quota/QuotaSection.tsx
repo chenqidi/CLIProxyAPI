@@ -7,6 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/EmptyState';
+import { PaginationControls } from '@/components/ui/PaginationControls';
 import { triggerHeaderRefresh } from '@/hooks/useHeaderRefresh';
 import { useNotificationStore, useQuotaStore, useThemeStore } from '@/stores';
 import type { AuthFileItem, ResolvedTheme } from '@/types';
@@ -34,8 +35,7 @@ interface QuotaPaginationState<T> {
   currentPage: number;
   pageItems: T[];
   setPageSize: (size: number) => void;
-  goToPrev: () => void;
-  goToNext: () => void;
+  goToPage: (page: number) => void;
   loading: boolean;
   loadingScope: 'page' | 'all' | null;
   setLoading: (loading: boolean, scope?: 'page' | 'all' | null) => void;
@@ -64,12 +64,9 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6): QuotaPaginatio
     setPage(1);
   }, []);
 
-  const goToPrev = useCallback(() => {
-    setPage((prev) => Math.max(1, prev - 1));
-  }, []);
-
-  const goToNext = useCallback(() => {
-    setPage((prev) => Math.min(totalPages, prev + 1));
+  const goToPage = useCallback((nextPage: number) => {
+    if (!Number.isFinite(nextPage)) return;
+    setPage(Math.max(1, Math.min(totalPages, Math.round(nextPage))));
   }, [totalPages]);
 
   const setLoading = useCallback((isLoading: boolean, scope?: 'page' | 'all' | null) => {
@@ -83,8 +80,7 @@ const useQuotaPagination = <T,>(items: T[], defaultPageSize = 6): QuotaPaginatio
     currentPage,
     pageItems,
     setPageSize,
-    goToPrev,
-    goToNext,
+    goToPage,
     loading,
     loadingScope,
     setLoading
@@ -129,8 +125,7 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
     currentPage,
     pageItems,
     setPageSize,
-    goToPrev,
-    goToNext,
+    goToPage,
     loading: sectionLoading,
     setLoading
   } = useQuotaPagination(filteredFiles);
@@ -324,31 +319,11 @@ export function QuotaSection<TState extends QuotaStatusState, TData>({
             ))}
           </div>
           {filteredFiles.length > pageSize && effectiveViewMode === 'paged' && (
-            <div className={styles.pagination}>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={goToPrev}
-                disabled={currentPage <= 1}
-              >
-                {t('auth_files.pagination_prev')}
-              </Button>
-              <div className={styles.pageInfo}>
-                {t('auth_files.pagination_info', {
-                  current: currentPage,
-                  total: totalPages,
-                  count: filteredFiles.length
-                })}
-              </div>
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={goToNext}
-                disabled={currentPage >= totalPages}
-              >
-                {t('auth_files.pagination_next')}
-              </Button>
-            </div>
+            <PaginationControls
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={goToPage}
+            />
           )}
         </>
       )}
