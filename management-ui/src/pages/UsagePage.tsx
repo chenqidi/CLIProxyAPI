@@ -325,14 +325,25 @@ export function UsagePage() {
         }}
       />
 
+      <ServiceHealthCard health={health} loading={loading} />
+
+      <RequestEventsDetailsCard
+        events={events}
+        loading={loading}
+        geminiKeys={config?.geminiApiKeys || []}
+        claudeConfigs={config?.claudeApiKeys || []}
+        codexConfigs={config?.codexApiKeys || []}
+        vertexConfigs={config?.vertexApiKeys || []}
+        openaiProviders={config?.openaiCompatibility || []}
+        modelPrices={modelPrices}
+      />
+
       <ChartLineSelector
         chartLines={chartLines}
         modelNames={modelNames}
         maxLines={MAX_CHART_LINES}
         onChange={handleChartLinesChange}
       />
-
-      <ServiceHealthCard health={health} loading={loading} />
 
       <div className={styles.chartsGrid}>
         <UsageChart
@@ -356,17 +367,6 @@ export function UsagePage() {
           emptyText={t('usage_stats.no_data')}
         />
       </div>
-
-      <RequestEventsDetailsCard
-        events={events}
-        loading={loading}
-        geminiKeys={config?.geminiApiKeys || []}
-        claudeConfigs={config?.claudeApiKeys || []}
-        codexConfigs={config?.codexApiKeys || []}
-        vertexConfigs={config?.vertexApiKeys || []}
-        openaiProviders={config?.openaiCompatibility || []}
-        modelPrices={modelPrices}
-      />
 
       {showLegacyDetails ? (
         <>
