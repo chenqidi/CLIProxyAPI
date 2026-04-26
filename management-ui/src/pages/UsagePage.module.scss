@@ -111,7 +111,15 @@
 .statsGrid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+
+  @media (min-width: 1500px) {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+  }
+
+  @include tablet {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 
   @include mobile {
     grid-template-columns: 1fr;
@@ -123,9 +131,8 @@
   --accent-soft: rgba($primary-color, 0.18);
   --accent-border: rgba($primary-color, 0.35);
 
-  grid-column: span 4;
   position: relative;
-  padding: 18px;
+  padding: 16px;
   background:
     radial-gradient(120% 140% at 12% 0%, var(--accent-soft) 0%, rgba(0, 0, 0, 0) 62%),
     linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0)),
@@ -134,8 +141,8 @@
   border: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  min-height: 176px;
+  gap: 8px;
+  min-height: 164px;
   box-shadow: var(--shadow-lg);
   transition: transform $transition-fast, box-shadow $transition-fast, border-color $transition-fast;
   overflow: hidden;
@@ -157,31 +164,8 @@
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.22);
   }
 
-  @include tablet {
-    grid-column: span 6;
-  }
-
   @include mobile {
-    grid-column: auto;
     min-height: 168px;
-  }
-}
-
-.statCard:nth-child(-n + 2) {
-  grid-column: span 6;
-
-  .statValue {
-    font-size: 32px;
-  }
-}
-
-@include mobile {
-  .statCard:nth-child(-n + 2) {
-    grid-column: auto;
-
-    .statValue {
-      font-size: 28px;
-    }
   }
 }
 
@@ -234,7 +218,7 @@
 }
 
 .statValue {
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 800;
   color: var(--text-primary);
   line-height: 1.2;
@@ -285,8 +269,8 @@
 .statMetaRow {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px 10px;
-  font-size: 12px;
+  gap: 6px 10px;
+  font-size: 11px;
   color: var(--text-secondary);
 }
 
@@ -311,8 +295,8 @@
   margin-top: auto;
   background: var(--bg-tertiary);
   border-radius: $radius-md;
-  padding: 8px;
-  height: 58px;
+  padding: 7px;
+  height: 52px;
   border: 1px solid var(--border-color);
 }
 
