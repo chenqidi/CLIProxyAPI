@@ -9,7 +9,7 @@ import type { UsageEventsPageData } from '@/services/api';
 import type { GeminiKeyConfig, ProviderKeyConfig, OpenAIProviderConfig } from '@/types';
 import type { AuthFileItem } from '@/types/authFile';
 import type { CredentialInfo } from '@/types/sourceInfo';
-import { buildSourceInfoMap, resolveSourceDisplay } from '@/utils/sourceResolver';
+import { buildSourceInfoMap } from '@/utils/sourceResolver';
 import {
   calculateTokenCostForModel,
   normalizeAuthIndex,
@@ -27,10 +27,8 @@ type RequestEventRow = {
   timestampMs: number;
   timestampLabel: string;
   model: string;
-  sourceRaw: string;
-  source: string;
-  sourceType: string;
-  authIndex: string;
+  provider: string;
+  authFile: string;
   failed: boolean;
   cost: number;
   costLabel: string;
@@ -105,6 +103,28 @@ const formatOutputRate = (value: number | null): string => {
   return `${formatted} tps`;
 };
 
+const normalizeProviderLabel = (value: unknown): string => {
+  const text =
+    typeof value === 'string'
+      ? value.trim()
+      : value === null || value === undefined
+        ? ''
+        : String(value).trim();
+  return text ? text.toLowerCase() : '-';
+};
+
+const looksLikeAuthFileName = (value: string): boolean =>
+  /\.[A-Za-z0-9_-]{2,16}$/i.test(value);
+
+const resolveAuthFileName = (sourceRaw: string, authInfo?: CredentialInfo): string => {
+  const authFileName = authInfo?.name?.trim();
+  if (authFileName) return authFileName;
+
+  const normalizedSource = sourceRaw.startsWith('t:') ? sourceRaw.slice(2) : sourceRaw;
+  const sourceText = normalizedSource.trim();
+  return sourceText && looksLikeAuthFileName(sourceText) ? sourceText : '-';
+};
+
 export function RequestEventsDetailsCard({
   events,
   loading,
@@ -118,8 +138,8 @@ export function RequestEventsDetailsCard({
   const { t, i18n } = useTranslation();
 
   const [modelFilter, setModelFilter] = useState(ALL_FILTER);
-  const [sourceFilter, setSourceFilter] = useState(ALL_FILTER);
-  const [authIndexFilter, setAuthIndexFilter] = useState(ALL_FILTER);
+  const [providerFilter, setProviderFilter] = useState(ALL_FILTER);
+  const [authFileFilter, setAuthFileFilter] = useState(ALL_FILTER);
   const [authFileMap, setAuthFileMap] = useState<Map<string, CredentialInfo>>(new Map());
 
   useEffect(() => {
@@ -167,9 +187,12 @@ export function RequestEventsDetailsCard({
         const timestamp = item.timestamp;
         const timestampMs = Date.parse(timestamp);
         const date = Number.isNaN(timestampMs) ? null : new Date(timestampMs);
-        const sourceRaw = String(item.source ?? '').trim() || '-';
+        const sourceRaw = String(item.source ?? '').trim();
         const authIndex = normalizeAuthIndex(item.authIndex) ?? '-';
-        const sourceInfo = resolveSourceDisplay(sourceRaw, item.authIndex, sourceInfoMap, authFileMap);
+        const sourceInfo = sourceInfoMap.get(sourceRaw);
+        const authInfo = authIndex !== '-' ? authFileMap.get(authIndex) : undefined;
+        const provider = normalizeProviderLabel(item.provider || sourceInfo?.type || authInfo?.type);
+        const authFile = resolveAuthFileName(sourceRaw, authInfo);
         const model = item.model || '-';
         const inputTokens = Math.max(item.tokens.inputTokens, 0);
         const outputTokens = Math.max(item.tokens.outputTokens, 0);
@@ -186,15 +209,13 @@ export function RequestEventsDetailsCard({
         const outputRate = calculateOutputRate(outputTokens, latencyMs);
 
         return {
-          id: `${timestamp}-${item.model}-${sourceRaw}-${authIndex}-${index}`,
+          id: `${timestamp}-${item.model}-${provider}-${authFile}-${authIndex}-${index}`,
           timestamp,
           timestampMs: Number.isNaN(timestampMs) ? 0 : timestampMs,
           timestampLabel: date ? date.toLocaleString(i18n.language) : timestamp || '-',
           model,
-          sourceRaw,
-          source: sourceInfo.displayName,
-          sourceType: sourceInfo.type,
-          authIndex,
+          provider,
+          authFile,
           failed: item.failed === true,
           cost,
           costLabel: formatPreciseUsd(cost),
@@ -225,64 +246,67 @@ export function RequestEventsDetailsCard({
     [rows, t]
   );
 
-  const sourceOptions = useMemo(
+  const providerOptions = useMemo(
     () => [
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
-      ...Array.from(new Set(rows.map((row) => row.source))).map((source) => ({
-        value: source,
-        label: source
+      ...Array.from(new Set(rows.map((row) => row.provider))).map((provider) => ({
+        value: provider,
+        label: provider
       }))
     ],
     [rows, t]
   );
 
-  const authIndexOptions = useMemo(
+  const authFileOptions = useMemo(
     () => [
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
-      ...Array.from(new Set(rows.map((row) => row.authIndex))).map((authIndex) => ({
-        value: authIndex,
-        label: authIndex
+      ...Array.from(new Set(rows.map((row) => row.authFile))).map((authFile) => ({
+        value: authFile,
+        label: authFile
       }))
     ],
     [rows, t]
   );
 
   const modelOptionSet = useMemo(() => new Set(modelOptions.map((option) => option.value)), [modelOptions]);
-  const sourceOptionSet = useMemo(() => new Set(sourceOptions.map((option) => option.value)), [sourceOptions]);
-  const authIndexOptionSet = useMemo(
-    () => new Set(authIndexOptions.map((option) => option.value)),
-    [authIndexOptions]
+  const providerOptionSet = useMemo(
+    () => new Set(providerOptions.map((option) => option.value)),
+    [providerOptions]
+  );
+  const authFileOptionSet = useMemo(
+    () => new Set(authFileOptions.map((option) => option.value)),
+    [authFileOptions]
   );
 
   const effectiveModelFilter = modelOptionSet.has(modelFilter) ? modelFilter : ALL_FILTER;
-  const effectiveSourceFilter = sourceOptionSet.has(sourceFilter) ? sourceFilter : ALL_FILTER;
-  const effectiveAuthIndexFilter = authIndexOptionSet.has(authIndexFilter)
-    ? authIndexFilter
+  const effectiveProviderFilter = providerOptionSet.has(providerFilter) ? providerFilter : ALL_FILTER;
+  const effectiveAuthFileFilter = authFileOptionSet.has(authFileFilter)
+    ? authFileFilter
     : ALL_FILTER;
 
   const filteredRows = useMemo(
     () =>
       rows.filter((row) => {
         const modelMatched = effectiveModelFilter === ALL_FILTER || row.model === effectiveModelFilter;
-        const sourceMatched = effectiveSourceFilter === ALL_FILTER || row.source === effectiveSourceFilter;
-        const authIndexMatched =
-          effectiveAuthIndexFilter === ALL_FILTER || row.authIndex === effectiveAuthIndexFilter;
-        return modelMatched && sourceMatched && authIndexMatched;
+        const providerMatched = effectiveProviderFilter === ALL_FILTER || row.provider === effectiveProviderFilter;
+        const authFileMatched =
+          effectiveAuthFileFilter === ALL_FILTER || row.authFile === effectiveAuthFileFilter;
+        return modelMatched && providerMatched && authFileMatched;
       }),
-    [effectiveAuthIndexFilter, effectiveModelFilter, effectiveSourceFilter, rows]
+    [effectiveAuthFileFilter, effectiveModelFilter, effectiveProviderFilter, rows]
   );
 
   const renderedRows = useMemo(() => filteredRows.slice(0, MAX_RENDERED_EVENTS), [filteredRows]);
 
   const hasActiveFilters =
     effectiveModelFilter !== ALL_FILTER ||
-    effectiveSourceFilter !== ALL_FILTER ||
-    effectiveAuthIndexFilter !== ALL_FILTER;
+    effectiveProviderFilter !== ALL_FILTER ||
+    effectiveAuthFileFilter !== ALL_FILTER;
 
   const handleClearFilters = () => {
     setModelFilter(ALL_FILTER);
-    setSourceFilter(ALL_FILTER);
-    setAuthIndexFilter(ALL_FILTER);
+    setProviderFilter(ALL_FILTER);
+    setAuthFileFilter(ALL_FILTER);
   };
 
   const handleExportCsv = () => {
@@ -291,9 +315,8 @@ export function RequestEventsDetailsCard({
     const csvHeader = [
       'timestamp',
       'model',
-      'source',
-      'source_raw',
-      'auth_index',
+      'provider',
+      'auth_file',
       'result',
       'cost_usd',
       'first_token_latency_ms',
@@ -310,9 +333,8 @@ export function RequestEventsDetailsCard({
       [
         row.timestamp,
         row.model,
-        row.source,
-        row.sourceRaw,
-        row.authIndex,
+        row.provider,
+        row.authFile,
         row.failed ? 'failed' : 'success',
         row.cost > 0 ? row.cost : '',
         row.firstTokenLatencyMs || '',
@@ -342,9 +364,8 @@ export function RequestEventsDetailsCard({
     const payload = filteredRows.map((row) => ({
       timestamp: row.timestamp,
       model: row.model,
-      source: row.source,
-      source_raw: row.sourceRaw,
-      auth_index: row.authIndex,
+      provider: row.provider,
+      auth_file: row.authFile,
       failed: row.failed,
       cost_usd: row.cost > 0 ? row.cost : null,
       first_token_latency_ms: row.firstTokenLatencyMs || null,
@@ -418,9 +439,9 @@ export function RequestEventsDetailsCard({
             {t('usage_stats.request_events_filter_source')}
           </span>
           <Select
-            value={effectiveSourceFilter}
-            options={sourceOptions}
-            onChange={setSourceFilter}
+            value={effectiveProviderFilter}
+            options={providerOptions}
+            onChange={setProviderFilter}
             className={styles.requestEventsSelect}
             ariaLabel={t('usage_stats.request_events_filter_source')}
             fullWidth={false}
@@ -431,9 +452,9 @@ export function RequestEventsDetailsCard({
             {t('usage_stats.request_events_filter_auth_index')}
           </span>
           <Select
-            value={effectiveAuthIndexFilter}
-            options={authIndexOptions}
-            onChange={setAuthIndexFilter}
+            value={effectiveAuthFileFilter}
+            options={authFileOptions}
+            onChange={setAuthFileFilter}
             className={styles.requestEventsSelect}
             ariaLabel={t('usage_stats.request_events_filter_auth_index')}
             fullWidth={false}
@@ -468,7 +489,21 @@ export function RequestEventsDetailsCard({
           </div>
 
           <div className={styles.requestEventsTableWrapper}>
-            <table className={styles.table}>
+            <table className={`${styles.table} ${styles.requestEventsTable}`}>
+              <colgroup>
+                <col className={styles.requestEventsColTimestamp} />
+                <col className={styles.requestEventsColModel} />
+                <col className={styles.requestEventsColProvider} />
+                <col className={styles.requestEventsColAuthFile} />
+                <col className={styles.requestEventsColResult} />
+                <col className={styles.requestEventsColCost} />
+                <col className={styles.requestEventsColPerf} />
+                <col className={styles.requestEventsColInputTokens} />
+                <col className={styles.requestEventsColOutputTokens} />
+                <col className={styles.requestEventsColReasoningTokens} />
+                <col className={styles.requestEventsColCachedTokens} />
+                <col className={styles.requestEventsColTotalTokens} />
+              </colgroup>
               <thead>
                 <tr>
                   <th>{t('usage_stats.request_events_timestamp')}</th>
@@ -492,14 +527,11 @@ export function RequestEventsDetailsCard({
                       {row.timestampLabel}
                     </td>
                     <td className={styles.modelCell}>{row.model}</td>
-                    <td className={styles.requestEventsSourceCell} title={row.source}>
-                      <span>{row.source}</span>
-                      {row.sourceType && (
-                        <span className={styles.credentialType}>{row.sourceType}</span>
-                      )}
+                    <td className={styles.requestEventsProviderCell} title={row.provider}>
+                      {row.provider}
                     </td>
-                    <td className={styles.requestEventsAuthIndex} title={row.authIndex}>
-                      {row.authIndex}
+                    <td className={styles.requestEventsAuthFile} title={row.authFile}>
+                      {row.authFile}
                     </td>
                     <td>
                       <span
@@ -522,11 +554,11 @@ export function RequestEventsDetailsCard({
                         </span>
                       </div>
                     </td>
-                    <td>{row.inputTokens.toLocaleString()}</td>
-                    <td>{row.outputTokens.toLocaleString()}</td>
-                    <td>{row.reasoningTokens.toLocaleString()}</td>
-                    <td>{row.cachedTokens.toLocaleString()}</td>
-                    <td>{row.totalTokens.toLocaleString()}</td>
+                    <td className={styles.requestEventsNumericCell}>{row.inputTokens.toLocaleString()}</td>
+                    <td className={styles.requestEventsNumericCell}>{row.outputTokens.toLocaleString()}</td>
+                    <td className={styles.requestEventsNumericCell}>{row.reasoningTokens.toLocaleString()}</td>
+                    <td className={styles.requestEventsNumericCell}>{row.cachedTokens.toLocaleString()}</td>
+                    <td className={styles.requestEventsNumericCell}>{row.totalTokens.toLocaleString()}</td>
                   </tr>
                 ))}
               </tbody>

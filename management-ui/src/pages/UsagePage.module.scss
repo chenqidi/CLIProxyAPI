@@ -914,19 +914,81 @@
   border-radius: $radius-md;
 }
 
-.requestEventsTimestamp {
-  white-space: nowrap;
-  min-width: 160px;
+.requestEventsTable {
+  table-layout: fixed;
+
+  td {
+    vertical-align: top;
+  }
 }
 
-.requestEventsSourceCell,
-.requestEventsAuthIndex {
+.requestEventsColTimestamp {
+  width: 10%;
+}
+
+.requestEventsColModel {
+  width: 8%;
+}
+
+.requestEventsColProvider {
+  width: 6%;
+}
+
+.requestEventsColAuthFile {
+  width: 16%;
+}
+
+.requestEventsColResult {
+  width: 5%;
+}
+
+.requestEventsColCost {
+  width: 7%;
+}
+
+.requestEventsColPerf {
+  width: 12%;
+}
+
+.requestEventsColInputTokens {
+  width: 8%;
+}
+
+.requestEventsColOutputTokens {
+  width: 7%;
+}
+
+.requestEventsColReasoningTokens {
+  width: 6%;
+}
+
+.requestEventsColCachedTokens {
+  width: 8%;
+}
+
+.requestEventsColTotalTokens {
+  width: 7%;
+}
+
+.requestEventsTimestamp {
+  white-space: nowrap;
+}
+
+.requestEventsProviderCell {
+  white-space: nowrap;
+  font-weight: 600;
+  text-transform: lowercase;
+}
+
+.requestEventsAuthFile {
   font-family:
     ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
   font-size: 11px;
-  max-width: 180px;
-  word-break: break-all;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.45;
 }
 
 .requestEventsResultSuccess {
@@ -959,12 +1021,16 @@
   color: var(--text-primary);
 }
 
+.requestEventsNumericCell {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .requestEventsPerfStack {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 5px;
-  min-width: 148px;
 }
 
 .requestEventsPerfPill,
