@@ -75,7 +75,9 @@ type DashboardSetState = {
 };
 
 let dashboardScopeToken = 0;
+let dashboardRequestToken = 0;
 const inFlightDashboardRequests = new Map<string, Promise<unknown>>();
+const activeDashboardRequestTokens = new Map<string, number>();
 
 const getScopeKey = () => {
   const { apiBase = '', managementKey = '' } = useAuthStore.getState();
@@ -117,8 +119,31 @@ const clearInFlightForScope = (scopeKey: string) => {
   Array.from(inFlightDashboardRequests.keys()).forEach((key) => {
     if (key.startsWith(`${scopeKey}::`)) {
       inFlightDashboardRequests.delete(key);
+      activeDashboardRequestTokens.delete(key);
     }
   });
+};
+
+const nextDashboardRequestToken = (inFlightKey: string) => {
+  dashboardRequestToken += 1;
+  activeDashboardRequestTokens.set(inFlightKey, dashboardRequestToken);
+  return dashboardRequestToken;
+};
+
+const isActiveDashboardRequest = (inFlightKey: string, requestToken: number) =>
+  activeDashboardRequestTokens.get(inFlightKey) === requestToken;
+
+const clearActiveDashboardRequest = (
+  inFlightKey: string,
+  requestToken: number,
+  requestPromise: Promise<unknown>
+) => {
+  if (isActiveDashboardRequest(inFlightKey, requestToken)) {
+    activeDashboardRequestTokens.delete(inFlightKey);
+  }
+  if (inFlightDashboardRequests.get(inFlightKey) === requestPromise) {
+    inFlightDashboardRequests.delete(inFlightKey);
+  }
 };
 
 const ensureDashboardScope = (
@@ -160,12 +185,17 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
 
     const inFlightKey = `${scopeKey}::${cacheKey}`;
     const existing = inFlightDashboardRequests.get(inFlightKey) as Promise<UsageSummaryData> | undefined;
-    if (existing) return existing;
+    if (existing && !options.force) return existing;
 
     const requestToken = dashboardScopeToken;
+    const activeRequestToken = nextDashboardRequestToken(inFlightKey);
     const requestPromise = (async () => {
       const data = await usageApi.getUsageSummary(buildUsageRangeQuery(range));
-      if (requestToken === dashboardScopeToken && get().scopeKey === scopeKey) {
+      if (
+        requestToken === dashboardScopeToken &&
+        get().scopeKey === scopeKey &&
+        isActiveDashboardRequest(inFlightKey, activeRequestToken)
+      ) {
         set((state) => ({
           summaryCache: {
             ...state.summaryCache,
@@ -175,7 +205,7 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
       }
       return data;
     })().finally(() => {
-      inFlightDashboardRequests.delete(inFlightKey);
+      clearActiveDashboardRequest(inFlightKey, activeRequestToken, requestPromise);
     });
 
     inFlightDashboardRequests.set(inFlightKey, requestPromise);
@@ -193,12 +223,17 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
 
     const inFlightKey = `${scopeKey}::${cacheKey}`;
     const existing = inFlightDashboardRequests.get(inFlightKey) as Promise<UsageHealthData> | undefined;
-    if (existing) return existing;
+    if (existing && !options.force) return existing;
 
     const requestToken = dashboardScopeToken;
+    const activeRequestToken = nextDashboardRequestToken(inFlightKey);
     const requestPromise = (async () => {
       const data = await usageApi.getUsageHealth();
-      if (requestToken === dashboardScopeToken && get().scopeKey === scopeKey) {
+      if (
+        requestToken === dashboardScopeToken &&
+        get().scopeKey === scopeKey &&
+        isActiveDashboardRequest(inFlightKey, activeRequestToken)
+      ) {
         set((state) => ({
           healthCache: {
             ...state.healthCache,
@@ -208,7 +243,7 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
       }
       return data;
     })().finally(() => {
-      inFlightDashboardRequests.delete(inFlightKey);
+      clearActiveDashboardRequest(inFlightKey, activeRequestToken, requestPromise);
     });
 
     inFlightDashboardRequests.set(inFlightKey, requestPromise);
@@ -226,9 +261,10 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
 
     const inFlightKey = `${scopeKey}::${cacheKey}`;
     const existing = inFlightDashboardRequests.get(inFlightKey) as Promise<UsageChartData> | undefined;
-    if (existing) return existing;
+    if (existing && !options.force) return existing;
 
     const requestToken = dashboardScopeToken;
+    const activeRequestToken = nextDashboardRequestToken(inFlightKey);
     const requestPromise = (async () => {
       const hours = query.period === 'hour' ? query.hours ?? getUsageTimeRangeHours(query.range) : undefined;
       const data = await usageApi.getUsageChart({
@@ -237,7 +273,11 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
         metric: query.metric,
         hours,
       });
-      if (requestToken === dashboardScopeToken && get().scopeKey === scopeKey) {
+      if (
+        requestToken === dashboardScopeToken &&
+        get().scopeKey === scopeKey &&
+        isActiveDashboardRequest(inFlightKey, activeRequestToken)
+      ) {
         set((state) => ({
           chartCache: {
             ...state.chartCache,
@@ -247,7 +287,7 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
       }
       return data;
     })().finally(() => {
-      inFlightDashboardRequests.delete(inFlightKey);
+      clearActiveDashboardRequest(inFlightKey, activeRequestToken, requestPromise);
     });
 
     inFlightDashboardRequests.set(inFlightKey, requestPromise);
@@ -265,9 +305,10 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
 
     const inFlightKey = `${scopeKey}::${cacheKey}`;
     const existing = inFlightDashboardRequests.get(inFlightKey) as Promise<UsageEventsPageData> | undefined;
-    if (existing) return existing;
+    if (existing && !options.force) return existing;
 
     const requestToken = dashboardScopeToken;
+    const activeRequestToken = nextDashboardRequestToken(inFlightKey);
     const requestPromise = (async () => {
       const data = await usageApi.getUsageEvents({
         ...buildUsageRangeQuery(query.range),
@@ -278,7 +319,11 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
         authIndex: query.authIndex,
         failed: query.failed,
       });
-      if (requestToken === dashboardScopeToken && get().scopeKey === scopeKey) {
+      if (
+        requestToken === dashboardScopeToken &&
+        get().scopeKey === scopeKey &&
+        isActiveDashboardRequest(inFlightKey, activeRequestToken)
+      ) {
         set((state) => ({
           eventsCache: {
             ...state.eventsCache,
@@ -288,7 +333,7 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
       }
       return data;
     })().finally(() => {
-      inFlightDashboardRequests.delete(inFlightKey);
+      clearActiveDashboardRequest(inFlightKey, activeRequestToken, requestPromise);
     });
 
     inFlightDashboardRequests.set(inFlightKey, requestPromise);
