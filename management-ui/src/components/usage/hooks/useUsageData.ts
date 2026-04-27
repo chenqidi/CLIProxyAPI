@@ -23,6 +23,7 @@ import {
 } from '@/utils/usage';
 
 const DEFAULT_EVENTS_PAGE_SIZE = 500;
+const CHART_REFRESH_STALE_TIME_MS = 60_000;
 
 export interface UsagePayload {
   total_requests?: number;
@@ -39,6 +40,7 @@ export interface UseUsageDataOptions {
 
 export interface LoadUsageOptions {
   silent?: boolean;
+  forceCharts?: boolean;
 }
 
 export interface UseUsageDataReturn {
@@ -127,6 +129,54 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
 
   const loading = isLoadingState || summary === null || health === null || events === null;
 
+  const loadDashboardCharts = useCallback(async (force: boolean) => {
+    await Promise.all([
+      loadUsageChart(
+        {
+          range: timeRange,
+          period: 'hour',
+          metric: 'requests',
+          hours: getUsageTimeRangeHours(timeRange),
+        },
+        { force, staleTimeMs: CHART_REFRESH_STALE_TIME_MS }
+      ),
+      loadUsageChart(
+        {
+          range: timeRange,
+          period: 'hour',
+          metric: 'tokens',
+          hours: getUsageTimeRangeHours(timeRange),
+        },
+        { force, staleTimeMs: CHART_REFRESH_STALE_TIME_MS }
+      ),
+      loadUsageChart(
+        {
+          range: timeRange,
+          period: 'hour',
+          metric: 'cost',
+          hours: getUsageTimeRangeHours(timeRange),
+        },
+        { force, staleTimeMs: CHART_REFRESH_STALE_TIME_MS }
+      ),
+      loadUsageChart(
+        {
+          range: timeRange,
+          period: 'day',
+          metric: 'requests',
+        },
+        { force, staleTimeMs: CHART_REFRESH_STALE_TIME_MS }
+      ),
+      loadUsageChart(
+        {
+          range: timeRange,
+          period: 'day',
+          metric: 'tokens',
+        },
+        { force, staleTimeMs: CHART_REFRESH_STALE_TIME_MS }
+      ),
+    ]);
+  }, [loadUsageChart, timeRange]);
+
   const loadDashboardData = useCallback(async (
     force: boolean,
     options: LoadUsageOptions = {}
@@ -144,57 +194,16 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     }
     setError('');
     try {
+      await loadUsageEvents(
+        { range: timeRange, page: 1, pageSize: DEFAULT_EVENTS_PAGE_SIZE },
+        { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
+      );
+
       await Promise.all([
         loadUsageSummary(timeRange, { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }),
         loadUsageHealth({ force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }),
-        loadUsageEvents(
-          { range: timeRange, page: 1, pageSize: DEFAULT_EVENTS_PAGE_SIZE },
-          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
-        ),
-        loadUsageChart(
-          {
-            range: timeRange,
-            period: 'hour',
-            metric: 'requests',
-            hours: getUsageTimeRangeHours(timeRange),
-          },
-          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
-        ),
-        loadUsageChart(
-          {
-            range: timeRange,
-            period: 'hour',
-            metric: 'tokens',
-            hours: getUsageTimeRangeHours(timeRange),
-          },
-          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
-        ),
-        loadUsageChart(
-          {
-            range: timeRange,
-            period: 'hour',
-            metric: 'cost',
-            hours: getUsageTimeRangeHours(timeRange),
-          },
-          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
-        ),
-        loadUsageChart(
-          {
-            range: timeRange,
-            period: 'day',
-            metric: 'requests',
-          },
-          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
-        ),
-        loadUsageChart(
-          {
-            range: timeRange,
-            period: 'day',
-            metric: 'tokens',
-          },
-          { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
-        ),
       ]);
+      void loadDashboardCharts(options.forceCharts === true || (force && !silent)).catch(() => {});
       setLastRefreshedAt(new Date());
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '';
@@ -205,7 +214,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       setRefreshing(false);
       setBackgroundRefreshing(false);
     }
-  }, [loadUsageChart, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
+  }, [loadDashboardCharts, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
 
   const loadUsage = useCallback(async (options: LoadUsageOptions = {}) => {
     await loadDashboardData(true, options);
@@ -301,7 +310,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       );
 
       try {
-        await loadDashboardData(true, { silent: true });
+        await loadDashboardData(true, { silent: true, forceCharts: true });
         if (legacyLoaded) {
           await loadLegacyUsage();
         }
@@ -358,7 +367,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       await usageApi.updateModelPrices(overrides);
       updateConfigValue('usage-model-prices', overrides);
       try {
-        await loadDashboardData(true, { silent: true });
+        await loadDashboardData(true, { silent: true, forceCharts: true });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '';
         showNotification(
