@@ -131,6 +131,7 @@ type UsageEventsQuery struct {
 	End           *time.Time
 	Page          int
 	PageSize      int
+	SkipTotal     bool
 	Model         string
 	Source        string
 	AuthIndex     string
@@ -162,6 +163,7 @@ type UsageEventsPage struct {
 	Page       int              `json:"page"`
 	PageSize   int              `json:"page_size"`
 	TotalItems int64            `json:"total_items"`
+	TotalExact bool             `json:"total_exact"`
 	HasMore    bool             `json:"has_more"`
 	Items      []UsageEventItem `json:"items"`
 }
@@ -649,16 +651,23 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 	}
 	whereClause := strings.Join(clauses, " AND ")
 
-	countRow := repo.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM usage_events WHERE %s`, whereClause), args...)
-	if err := countRow.Scan(&result.TotalItems); err != nil {
-		return result, fmt.Errorf("usage query events count: %w", err)
-	}
-	if result.TotalItems == 0 {
-		return result, nil
+	result.TotalExact = !query.SkipTotal
+	if !query.SkipTotal {
+		countRow := repo.db.QueryRowContext(ctx, fmt.Sprintf(`SELECT COUNT(*) FROM usage_events WHERE %s`, whereClause), args...)
+		if err := countRow.Scan(&result.TotalItems); err != nil {
+			return result, fmt.Errorf("usage query events count: %w", err)
+		}
+		if result.TotalItems == 0 {
+			return result, nil
+		}
 	}
 
 	offset := (result.Page - 1) * result.PageSize
-	itemArgs := append(append([]any{}, args...), result.PageSize, offset)
+	limit := result.PageSize
+	if query.SkipTotal {
+		limit++
+	}
+	itemArgs := append(append([]any{}, args...), limit, offset)
 	rows, err := repo.db.QueryContext(ctx, fmt.Sprintf(`SELECT
 		requested_at_ns,
 		provider,
@@ -686,6 +695,7 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 	}
 	defer rows.Close()
 
+	loadedRows := 0
 	for rows.Next() {
 		var (
 			requestedAtNS       int64
@@ -736,6 +746,11 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 			}
 			requestPath = legacyPath
 		}
+		loadedRows++
+		if query.SkipTotal && loadedRows > result.PageSize {
+			result.HasMore = true
+			continue
+		}
 		result.Items = append(result.Items, UsageEventItem{
 			Timestamp:           time.Unix(0, requestedAtNS).UTC(),
 			Provider:            strings.TrimSpace(provider),
@@ -760,6 +775,10 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 	}
 	if err := rows.Err(); err != nil {
 		return result, fmt.Errorf("usage query events iterate: %w", err)
+	}
+	if query.SkipTotal {
+		result.TotalItems = int64(offset + len(result.Items))
+		return result, nil
 	}
 	result.HasMore = int64(offset+len(result.Items)) < result.TotalItems
 	return result, nil

@@ -14,6 +14,7 @@ import (
 )
 
 const defaultUsageRetentionDays = 30
+const noStoreCacheControlHeader = "no-store, no-cache, must-revalidate, max-age=0"
 
 type usageExportPayload struct {
 	Version       int                      `json:"version"`
@@ -29,8 +30,15 @@ type usageImportPayload struct {
 	Usage   usage.StatisticsSnapshot `json:"usage"`
 }
 
+func setUsageNoStoreHeaders(c *gin.Context) {
+	c.Header("Cache-Control", noStoreCacheControlHeader)
+	c.Header("Pragma", "no-cache")
+	c.Header("Expires", "0")
+}
+
 // GetUsageSummary returns lightweight usage summary metrics.
 func (h *Handler) GetUsageSummary(c *gin.Context) {
+	setUsageNoStoreHeaders(c)
 	service := h.usageQuery()
 	if service == nil {
 		c.JSON(http.StatusOK, usage.UsageSummary{RetentionDays: defaultUsageRetentionDays})
@@ -56,6 +64,7 @@ func (h *Handler) GetUsageSummary(c *gin.Context) {
 
 // GetUsageStatus returns service-wide and grouped status-bar data.
 func (h *Handler) GetUsageStatus(c *gin.Context) {
+	setUsageNoStoreHeaders(c)
 	service := h.usageQuery()
 	if service == nil {
 		c.JSON(http.StatusOK, usage.UsageStatusOverview{})
@@ -75,6 +84,7 @@ func (h *Handler) GetUsageStatus(c *gin.Context) {
 
 // GetUsageHealth returns the 7x96 service health grid.
 func (h *Handler) GetUsageHealth(c *gin.Context) {
+	setUsageNoStoreHeaders(c)
 	service := h.usageQuery()
 	if service == nil {
 		c.JSON(http.StatusOK, usage.ServiceHealthData{Rows: 7, Cols: 96})
@@ -94,6 +104,7 @@ func (h *Handler) GetUsageHealth(c *gin.Context) {
 
 // GetUsageCharts returns chart-ready usage series grouped by model.
 func (h *Handler) GetUsageCharts(c *gin.Context) {
+	setUsageNoStoreHeaders(c)
 	service := h.usageQuery()
 	if service == nil {
 		c.JSON(http.StatusOK, usage.UsageChartData{DataByModel: make(map[string][]float64)})
@@ -141,6 +152,7 @@ func (h *Handler) GetUsageCharts(c *gin.Context) {
 
 // GetUsageEvents returns paginated lightweight request events.
 func (h *Handler) GetUsageEvents(c *gin.Context) {
+	setUsageNoStoreHeaders(c)
 	service := h.usageQuery()
 	if service == nil {
 		c.JSON(http.StatusOK, usage.UsageEventsPage{})
@@ -165,11 +177,18 @@ func (h *Handler) GetUsageEvents(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	includeTotal, err := parseOptionalBoolQuery(c, "include_total")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	skipTotal := includeTotal != nil && !*includeTotal
 	result, err := service.Events(c.Request.Context(), usage.UsageEventsQuery{
 		Start:         start,
 		End:           end,
 		Page:          page,
 		PageSize:      pageSize,
+		SkipTotal:     skipTotal,
 		Model:         c.Query("model"),
 		Source:        c.Query("source"),
 		AuthIndex:     c.Query("auth_index"),
@@ -186,6 +205,7 @@ func (h *Handler) GetUsageEvents(c *gin.Context) {
 
 // ExportUsageStatistics returns a complete compatibility snapshot for backup/migration.
 func (h *Handler) ExportUsageStatistics(c *gin.Context) {
+	setUsageNoStoreHeaders(c)
 	var snapshot usage.StatisticsSnapshot
 	if h != nil && h.usageStats != nil {
 		snapshot = h.usageStats.Snapshot()

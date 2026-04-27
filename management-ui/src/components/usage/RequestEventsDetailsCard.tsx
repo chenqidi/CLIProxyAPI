@@ -19,7 +19,7 @@ import { downloadBlob } from '@/utils/download';
 import styles from '@/pages/UsagePage.module.scss';
 
 const ALL_FILTER = '__all__';
-const MAX_RENDERED_EVENTS = 500;
+const REQUEST_EVENTS_PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 type RequestEventRow = {
   id: string;
@@ -48,6 +48,10 @@ type RequestEventRow = {
 export interface RequestEventsDetailsCardProps {
   events: UsageEventsPageData | null;
   loading: boolean;
+  page: number;
+  pageSize: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (pageSize: number) => void;
   geminiKeys: GeminiKeyConfig[];
   claudeConfigs: ProviderKeyConfig[];
   codexConfigs: ProviderKeyConfig[];
@@ -128,6 +132,10 @@ const resolveAuthFileName = (sourceRaw: string, authInfo?: CredentialInfo): stri
 export function RequestEventsDetailsCard({
   events,
   loading,
+  page,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
   geminiKeys,
   claudeConfigs,
   codexConfigs,
@@ -296,7 +304,24 @@ export function RequestEventsDetailsCard({
     [effectiveAuthFileFilter, effectiveModelFilter, effectiveProviderFilter, rows]
   );
 
-  const renderedRows = useMemo(() => filteredRows.slice(0, MAX_RENDERED_EVENTS), [filteredRows]);
+  const renderedRows = filteredRows;
+
+  const safePage = Math.max(1, events?.page ?? page);
+  const safePageSize = Math.max(1, events?.pageSize ?? pageSize);
+  const hasNextPage = events?.hasMore === true;
+  const pageSizeOptions = useMemo(
+    () =>
+      REQUEST_EVENTS_PAGE_SIZE_OPTIONS.map((size) => ({
+        value: String(size),
+        label: String(size)
+      })),
+    []
+  );
+
+  const handlePageSizeChange = (value: string) => {
+    const nextPageSize = Number(value);
+    onPageSizeChange(Number.isFinite(nextPageSize) ? nextPageSize : 10);
+  };
 
   const hasActiveFilters =
     effectiveModelFilter !== ALL_FILTER ||
@@ -477,15 +502,14 @@ export function RequestEventsDetailsCard({
       ) : (
         <>
           <div className={styles.requestEventsMeta}>
-            <span>{t('usage_stats.request_events_count', { count: filteredRows.length })}</span>
-            {(events?.hasMore || filteredRows.length > MAX_RENDERED_EVENTS) && (
-              <span className={styles.requestEventsLimitHint}>
-                {t('usage_stats.request_events_limit_hint', {
-                  shown: renderedRows.length,
-                  total: Math.max(filteredRows.length, events?.totalItems ?? filteredRows.length)
-                })}
-              </span>
-            )}
+            <span>{t('usage_stats.request_events_page_count', { count: filteredRows.length })}</span>
+            <span className={styles.requestEventsLimitHint}>
+              {events?.totalExact
+                ? t('usage_stats.request_events_exact_total', { count: events.totalItems })
+                : hasNextPage
+                  ? t('usage_stats.request_events_more_hint')
+                  : t('usage_stats.request_events_last_page_hint')}
+            </span>
           </div>
 
           <div className={styles.requestEventsTableWrapper}>
@@ -563,6 +587,42 @@ export function RequestEventsDetailsCard({
                 ))}
               </tbody>
             </table>
+          </div>
+          <div className={styles.requestEventsPagination}>
+            <div className={`${styles.requestEventsFilterItem} ${styles.requestEventsPageSizeItem}`}>
+              <span className={styles.requestEventsFilterLabel}>
+                {t('usage_stats.request_events_page_size')}
+              </span>
+              <Select
+                value={String(safePageSize)}
+                options={pageSizeOptions}
+                onChange={handlePageSizeChange}
+                className={styles.requestEventsPageSizeSelect}
+                ariaLabel={t('usage_stats.request_events_page_size')}
+                fullWidth={false}
+              />
+            </div>
+            <div className={styles.requestEventsPagerButtons}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onPageChange(safePage - 1)}
+                disabled={loading || safePage <= 1}
+              >
+                {t('pagination.prev')}
+              </Button>
+              <span className={styles.requestEventsCurrentPage}>
+                {t('usage_stats.request_events_current_page', { page: safePage })}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => onPageChange(safePage + 1)}
+                disabled={loading || !hasNextPage}
+              >
+                {t('pagination.next')}
+              </Button>
+            </div>
           </div>
         </>
       )}

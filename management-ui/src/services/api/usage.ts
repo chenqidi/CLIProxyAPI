@@ -16,6 +16,19 @@ import {
 } from '@/utils/usage';
 
 const USAGE_TIMEOUT_MS = 60 * 1000;
+const USAGE_NO_CACHE_HEADERS = {
+  'Cache-Control': 'no-cache',
+  Pragma: 'no-cache',
+} as const;
+
+const buildUsageRequestConfig = <TParams extends object>(params: TParams = {} as TParams) => ({
+  params: {
+    ...params,
+    _ts: Date.now(),
+  },
+  headers: USAGE_NO_CACHE_HEADERS,
+  timeout: USAGE_TIMEOUT_MS,
+});
 
 export interface UsageExportPayload {
   version?: number;
@@ -48,6 +61,7 @@ export interface UsageChartQuery extends UsageRangeQuery {
 export interface UsageEventsQuery extends UsageRangeQuery {
   page?: number;
   pageSize?: number;
+  includeTotal?: boolean;
   model?: string;
   source?: string;
   authIndex?: string;
@@ -138,6 +152,7 @@ interface UsageEventsPageResponse extends TimeWindowResponse {
   page?: number;
   page_size?: number;
   total_items?: number;
+  total_exact?: boolean;
   has_more?: boolean;
   items?: UsageEventItemResponse[];
 }
@@ -222,6 +237,7 @@ export interface UsageEventsPageData {
   page: number;
   pageSize: number;
   totalItems: number;
+  totalExact: boolean;
   hasMore: boolean;
   items: UsageEventItem[];
 }
@@ -499,6 +515,7 @@ const adaptUsageEventsPage = (value: unknown): UsageEventsPageData => {
     page: toCount(record?.page, 1),
     pageSize: toCount(record?.page_size, 100),
     totalItems: toCount(record?.total_items),
+    totalExact: toBoolean(record?.total_exact),
     hasMore: toBoolean(record?.has_more),
     items,
   };
@@ -509,6 +526,7 @@ const buildUsageEventsParams = (query: UsageEventsQuery) => ({
   end: query.end,
   page: query.page,
   page_size: query.pageSize,
+  include_total: query.includeTotal,
   model: query.model,
   source: query.source,
   auth_index: query.authIndex,
@@ -522,10 +540,10 @@ export const usageApi = {
    * Get the lightweight status overview.
    */
   async getUsageStatus(params: UsageStatusQuery = {}): Promise<UsageStatusOverview> {
-    const response = await apiClient.get<UsageStatusOverviewResponse>('/usage/status', {
-      params,
-      timeout: USAGE_TIMEOUT_MS,
-    });
+    const response = await apiClient.get<UsageStatusOverviewResponse>(
+      '/usage/status',
+      buildUsageRequestConfig(params)
+    );
     return adaptUsageStatusOverview(response);
   },
 
@@ -533,10 +551,10 @@ export const usageApi = {
    * Get the summary overview.
    */
   async getUsageSummary(params: UsageRangeQuery = {}): Promise<UsageSummaryData> {
-    const response = await apiClient.get<UsageSummaryResponse>('/usage/summary', {
-      params,
-      timeout: USAGE_TIMEOUT_MS,
-    });
+    const response = await apiClient.get<UsageSummaryResponse>(
+      '/usage/summary',
+      buildUsageRequestConfig(params)
+    );
     return adaptUsageSummary(response);
   },
 
@@ -544,10 +562,10 @@ export const usageApi = {
    * Get the 7x96 health grid.
    */
   async getUsageHealth(params: UsageRangeQuery = {}): Promise<UsageHealthData> {
-    const response = await apiClient.get<UsageHealthResponse>('/usage/health', {
-      params,
-      timeout: USAGE_TIMEOUT_MS,
-    });
+    const response = await apiClient.get<UsageHealthResponse>(
+      '/usage/health',
+      buildUsageRequestConfig(params)
+    );
     return adaptUsageHealth(response);
   },
 
@@ -555,10 +573,10 @@ export const usageApi = {
    * Get chart series.
    */
   async getUsageChart(params: UsageChartQuery): Promise<UsageChartData> {
-    const response = await apiClient.get<UsageChartResponse>('/usage/charts', {
-      params,
-      timeout: USAGE_TIMEOUT_MS,
-    });
+    const response = await apiClient.get<UsageChartResponse>(
+      '/usage/charts',
+      buildUsageRequestConfig(params)
+    );
     return adaptUsageChart(response);
   },
 
@@ -566,10 +584,10 @@ export const usageApi = {
    * Get the lightweight event list.
    */
   async getUsageEvents(params: UsageEventsQuery = {}): Promise<UsageEventsPageData> {
-    const response = await apiClient.get<UsageEventsPageResponse>('/usage/events', {
-      params: buildUsageEventsParams(params),
-      timeout: USAGE_TIMEOUT_MS,
-    });
+    const response = await apiClient.get<UsageEventsPageResponse>(
+      '/usage/events',
+      buildUsageRequestConfig(buildUsageEventsParams(params))
+    );
     return adaptUsageEventsPage(response);
   },
 
@@ -577,7 +595,7 @@ export const usageApi = {
    * Export a usage statistics snapshot.
    */
   exportUsage: () =>
-    apiClient.get<UsageExportPayload>('/usage/export', { timeout: USAGE_TIMEOUT_MS }),
+    apiClient.get<UsageExportPayload>('/usage/export', buildUsageRequestConfig()),
 
   /**
    * Import a usage statistics snapshot.

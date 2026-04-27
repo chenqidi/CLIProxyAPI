@@ -35,6 +35,7 @@ export type UsageDashboardEventsQuery = {
   range: UsageTimeRange;
   page?: number;
   pageSize?: number;
+  includeTotal?: boolean;
   model?: string;
   source?: string;
   authIndex?: string;
@@ -111,7 +112,7 @@ export const buildUsageHealthCacheKey = () => 'health:default';
 export const buildUsageChartCacheKey = (query: UsageDashboardChartQuery) =>
   `chart:${query.metric}:${query.period}:${query.range}:${query.hours ?? ''}`;
 export const buildUsageEventsCacheKey = (query: UsageDashboardEventsQuery) =>
-  `events:${query.range}:${query.page ?? 1}:${query.pageSize ?? 500}:${query.model ?? ''}:${query.source ?? ''}:${query.authIndex ?? ''}:${query.failed === undefined ? 'all' : query.failed ? '1' : '0'}`;
+  `events:${query.range}:${query.page ?? 1}:${query.pageSize ?? 500}:${query.includeTotal === false ? 'partial' : 'exact'}:${query.model ?? ''}:${query.source ?? ''}:${query.authIndex ?? ''}:${query.failed === undefined ? 'all' : query.failed ? '1' : '0'}`;
 
 const isFresh = (loadedAt: number, staleTimeMs: number) => Date.now() - loadedAt < staleTimeMs;
 
@@ -314,6 +315,7 @@ export const useUsageDashboardStore = create<UsageDashboardState>((set, get) => 
         ...buildUsageRangeQuery(query.range),
         page: query.page,
         pageSize: query.pageSize,
+        includeTotal: query.includeTotal,
         model: query.model,
         source: query.source,
         authIndex: query.authIndex,

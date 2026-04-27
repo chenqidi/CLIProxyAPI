@@ -134,11 +134,15 @@ export function UsagePage() {
     backgroundRefreshing,
     error,
     lastRefreshedAt,
+    eventsPage,
+    eventsPageSize,
     modelPrices,
     selectedPriceModel,
     setSelectedPriceModel,
     setModelPrices,
     loadUsage,
+    setEventsPage,
+    setEventsPageSize,
     legacyUsage,
     legacyLoading,
     legacyLoaded,
@@ -344,6 +348,10 @@ export function UsagePage() {
       <RequestEventsDetailsCard
         events={events}
         loading={loading}
+        page={eventsPage}
+        pageSize={eventsPageSize}
+        onPageChange={setEventsPage}
+        onPageSizeChange={setEventsPageSize}
         geminiKeys={config?.geminiApiKeys || []}
         claudeConfigs={config?.claudeApiKeys || []}
         codexConfigs={config?.codexApiKeys || []}

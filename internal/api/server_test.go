@@ -13,6 +13,7 @@ import (
 	gin "github.com/gin-gonic/gin"
 	proxyconfig "github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	internallogging "github.com/router-for-me/CLIProxyAPI/v6/internal/logging"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/managementasset"
 	sdkaccess "github.com/router-for-me/CLIProxyAPI/v6/sdk/access"
 	"github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	sdkconfig "github.com/router-for-me/CLIProxyAPI/v6/sdk/config"
@@ -82,6 +83,42 @@ func TestHealthz(t *testing.T) {
 			t.Fatalf("expected empty body for HEAD request, got %q", rr.Body.String())
 		}
 	})
+}
+
+func TestServeManagementControlPanelDisablesCache(t *testing.T) {
+	t.Setenv("MANAGEMENT_STATIC_PATH", "")
+	t.Setenv("WRITABLE_PATH", "")
+	t.Setenv("writable_path", "")
+
+	server := newTestServer(t)
+	assetPath := managementasset.FilePath(server.configFilePath)
+	if err := os.MkdirAll(filepath.Dir(assetPath), 0o755); err != nil {
+		t.Fatalf("failed to create management asset dir: %v", err)
+	}
+	if err := os.WriteFile(assetPath, []byte("<!doctype html><title>panel</title>"), 0o644); err != nil {
+		t.Fatalf("failed to write management asset: %v", err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/management.html", nil)
+	req.Header.Set("If-Modified-Since", time.Now().Add(24*time.Hour).Format(http.TimeFormat))
+	rr := httptest.NewRecorder()
+	server.engine.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("unexpected status code: got %d want %d; body=%s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+	if got := rr.Header().Get("Cache-Control"); got != "no-store, no-cache, must-revalidate, max-age=0" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+	if got := rr.Header().Get("Pragma"); got != "no-cache" {
+		t.Fatalf("Pragma = %q, want no-cache", got)
+	}
+	if got := rr.Header().Get("Expires"); got != "0" {
+		t.Fatalf("Expires = %q, want 0", got)
+	}
+	if body := rr.Body.String(); !strings.Contains(body, "<title>panel</title>") {
+		t.Fatalf("response body missing management asset content: %s", body)
+	}
 }
 
 func TestAmpProviderModelRoutes(t *testing.T) {

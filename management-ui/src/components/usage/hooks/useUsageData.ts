@@ -22,7 +22,7 @@ import {
   type UsageTimeRange,
 } from '@/utils/usage';
 
-const DEFAULT_EVENTS_PAGE_SIZE = 500;
+const DEFAULT_EVENTS_PAGE_SIZE = 10;
 const CHART_REFRESH_STALE_TIME_MS = 60_000;
 
 export interface UsagePayload {
@@ -52,6 +52,8 @@ export interface UseUsageDataReturn {
   backgroundRefreshing: boolean;
   error: string;
   lastRefreshedAt: Date | null;
+  eventsPage: number;
+  eventsPageSize: number;
   modelPrices: Record<string, ModelPrice>;
   selectedPriceModel: string;
   setSelectedPriceModel: (model: string) => Promise<boolean>;
@@ -60,6 +62,8 @@ export interface UseUsageDataReturn {
     options?: { action?: 'save' | 'delete' }
   ) => Promise<boolean>;
   loadUsage: (options?: LoadUsageOptions) => Promise<void>;
+  setEventsPage: (page: number) => void;
+  setEventsPageSize: (pageSize: number) => void;
   legacyUsage: UsagePayload | null;
   legacyLoading: boolean;
   legacyLoaded: boolean;
@@ -78,11 +82,19 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
   const { timeRange } = options;
   const { t } = useTranslation();
   const { showNotification } = useNotificationStore();
+  const [eventsPage, setEventsPageState] = useState(1);
+  const [eventsPageSize, setEventsPageSizeState] = useState(DEFAULT_EVENTS_PAGE_SIZE);
   const summaryKey = useMemo(() => buildUsageSummaryCacheKey(timeRange), [timeRange]);
   const healthKey = useMemo(() => buildUsageHealthCacheKey(), []);
   const eventsKey = useMemo(
-    () => buildUsageEventsCacheKey({ range: timeRange, page: 1, pageSize: DEFAULT_EVENTS_PAGE_SIZE }),
-    [timeRange]
+    () =>
+      buildUsageEventsCacheKey({
+        range: timeRange,
+        page: eventsPage,
+        pageSize: eventsPageSize,
+        includeTotal: false,
+      }),
+    [eventsPage, eventsPageSize, timeRange]
   );
 
   const summary = useUsageDashboardStore((state) => state.summaryCache[summaryKey]?.data ?? null);
@@ -122,6 +134,10 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     () => normalizeUsagePriceSelectedModel(configSelectedPriceModel),
     [configSelectedPriceModel]
   );
+
+  useEffect(() => {
+    setEventsPageState(1);
+  }, [timeRange]);
 
   useEffect(() => {
     hasDashboardDataRef.current = summary !== null && health !== null && events !== null;
@@ -195,7 +211,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     setError('');
     try {
       await loadUsageEvents(
-        { range: timeRange, page: 1, pageSize: DEFAULT_EVENTS_PAGE_SIZE },
+        { range: timeRange, page: eventsPage, pageSize: eventsPageSize, includeTotal: false },
         { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
       );
 
@@ -214,11 +230,21 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       setRefreshing(false);
       setBackgroundRefreshing(false);
     }
-  }, [loadDashboardCharts, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
+  }, [eventsPage, eventsPageSize, loadDashboardCharts, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
 
   const loadUsage = useCallback(async (options: LoadUsageOptions = {}) => {
     await loadDashboardData(true, options);
   }, [loadDashboardData]);
+
+  const setEventsPage = useCallback((page: number) => {
+    setEventsPageState(Number.isFinite(page) ? Math.max(1, Math.round(page)) : 1);
+  }, []);
+
+  const setEventsPageSize = useCallback((pageSize: number) => {
+    const safePageSize = Number.isFinite(pageSize) ? Math.max(1, Math.round(pageSize)) : DEFAULT_EVENTS_PAGE_SIZE;
+    setEventsPageSizeState(safePageSize);
+    setEventsPageState(1);
+  }, []);
 
   useEffect(() => {
     void loadDashboardData(false, { silent: true }).catch(() => {});
@@ -401,11 +427,15 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     backgroundRefreshing,
     error,
     lastRefreshedAt,
+    eventsPage,
+    eventsPageSize,
     modelPrices,
     selectedPriceModel,
     setSelectedPriceModel: handleSetSelectedPriceModel,
     setModelPrices: handleSetModelPrices,
     loadUsage,
+    setEventsPage,
+    setEventsPageSize,
     legacyUsage,
     legacyLoading,
     legacyLoaded,

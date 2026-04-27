@@ -128,6 +128,9 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 	if summaryRec.Code != http.StatusOK {
 		t.Fatalf("summary status = %d, want %d, body=%s", summaryRec.Code, http.StatusOK, summaryRec.Body.String())
 	}
+	if got := summaryRec.Header().Get("Cache-Control"); got != noStoreCacheControlHeader {
+		t.Fatalf("summary Cache-Control = %q, want %q", got, noStoreCacheControlHeader)
+	}
 
 	var summary usage.UsageSummary
 	if err := json.Unmarshal(summaryRec.Body.Bytes(), &summary); err != nil {
@@ -201,6 +204,9 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 	if eventsRec.Code != http.StatusOK {
 		t.Fatalf("events status = %d, want %d, body=%s", eventsRec.Code, http.StatusOK, eventsRec.Body.String())
 	}
+	if got := eventsRec.Header().Get("Cache-Control"); got != noStoreCacheControlHeader {
+		t.Fatalf("events Cache-Control = %q, want %q", got, noStoreCacheControlHeader)
+	}
 
 	var events usage.UsageEventsPage
 	if err := json.Unmarshal(eventsRec.Body.Bytes(), &events); err != nil {
@@ -208,6 +214,9 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 	}
 	if events.TotalItems != 2 {
 		t.Fatalf("events total_items = %d, want 2", events.TotalItems)
+	}
+	if !events.TotalExact {
+		t.Fatalf("events total_exact = false, want true")
 	}
 	if !events.HasMore {
 		t.Fatalf("events has_more = false, want true")
@@ -238,6 +247,67 @@ func TestGetUsageEventsRejectsInvalidPageSize(t *testing.T) {
 
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusBadRequest, rec.Body.String())
+	}
+}
+
+func TestGetUsageEventsCanSkipExactTotal(t *testing.T) {
+	h, repo := newUsageTestHandler(t)
+	now := time.Now().UTC().Truncate(time.Second)
+
+	for i := 0; i < 3; i++ {
+		seedUsageHandlerEvent(t, repo, usage.UsageEvent{
+			RequestedAt:   now.Add(-time.Duration(i) * time.Minute),
+			Provider:      "codex",
+			Model:         "gpt-5.4",
+			APIKey:        "key-a",
+			RequestMethod: "POST",
+			RequestPath:   "/v1/messages",
+			LatencyMs:     100 + int64(i),
+			Tokens: usage.TokenStats{
+				InputTokens:  1,
+				OutputTokens: 2,
+				TotalTokens:  3,
+			},
+		})
+	}
+
+	rec := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(
+		http.MethodGet,
+		"/v0/management/usage/events?start="+now.Add(-24*time.Hour).Format(time.RFC3339Nano)+"&end="+now.Format(time.RFC3339Nano)+"&page=1&page_size=2&include_total=false",
+		nil,
+	)
+	ctx.Request = req
+
+	h.GetUsageEvents(ctx)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var body struct {
+		Page       int              `json:"page"`
+		PageSize   int              `json:"page_size"`
+		TotalExact bool             `json:"total_exact"`
+		TotalItems int64            `json:"total_items"`
+		HasMore    bool             `json:"has_more"`
+		Items      []map[string]any `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal events: %v", err)
+	}
+	if body.TotalExact {
+		t.Fatalf("total_exact = true, want false")
+	}
+	if body.TotalItems != 2 {
+		t.Fatalf("total_items = %d, want lower bound 2", body.TotalItems)
+	}
+	if !body.HasMore {
+		t.Fatalf("has_more = false, want true")
+	}
+	if body.Page != 1 || body.PageSize != 2 || len(body.Items) != 2 {
+		t.Fatalf("unexpected page payload: %+v", body)
 	}
 }
 

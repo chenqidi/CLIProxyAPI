@@ -146,6 +146,7 @@ func (r *SQLiteRepository) ensureSchema(ctx context.Context) error {
 			dedup_key TEXT NOT NULL
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_events_requested_at_ns ON usage_events(requested_at_ns)`,
+		`CREATE INDEX IF NOT EXISTS idx_usage_events_requested_at_ns_id ON usage_events(requested_at_ns DESC, id DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_events_api_key_requested_at_ns ON usage_events(api_key, requested_at_ns)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_events_model_requested_at_ns ON usage_events(model, requested_at_ns)`,
 		`CREATE INDEX IF NOT EXISTS idx_usage_events_dedup_key ON usage_events(dedup_key)`,

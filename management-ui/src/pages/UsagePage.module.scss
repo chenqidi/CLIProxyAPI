@@ -876,6 +876,16 @@
   min-width: 180px;
 }
 
+.requestEventsPageSizeSelect {
+  min-width: 96px;
+}
+
+.requestEventsPageSizeItem {
+  flex-direction: row;
+  align-items: center;
+  min-width: 0;
+}
+
 .requestEventsMeta {
   display: flex;
   align-items: center;
@@ -896,6 +906,29 @@
   max-height: 460px;
   border: 1px solid var(--border-color);
   border-radius: $radius-md;
+}
+
+.requestEventsPagination {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: $spacing-sm;
+  margin-top: $spacing-sm;
+  flex-wrap: wrap;
+}
+
+.requestEventsPagerButtons {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  flex-wrap: wrap;
+}
+
+.requestEventsCurrentPage {
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .requestEventsTable {
