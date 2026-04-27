@@ -37,11 +37,17 @@ export interface UseUsageDataOptions {
   timeRange: UsageTimeRange;
 }
 
+export interface LoadUsageOptions {
+  silent?: boolean;
+}
+
 export interface UseUsageDataReturn {
   summary: UsageSummaryData | null;
   health: UsageHealthData | null;
   events: UsageEventsPageData | null;
   loading: boolean;
+  refreshing: boolean;
+  backgroundRefreshing: boolean;
   error: string;
   lastRefreshedAt: Date | null;
   modelPrices: Record<string, ModelPrice>;
@@ -51,7 +57,7 @@ export interface UseUsageDataReturn {
     prices: Record<string, ModelPrice>,
     options?: { action?: 'save' | 'delete' }
   ) => Promise<boolean>;
-  loadUsage: () => Promise<void>;
+  loadUsage: (options?: LoadUsageOptions) => Promise<void>;
   legacyUsage: UsagePayload | null;
   legacyLoading: boolean;
   legacyLoaded: boolean;
@@ -90,7 +96,9 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
   const configSelectedPriceModel = useConfigStore((state) => state.config?.usagePriceSelectedModel);
   const updateConfigValue = useConfigStore((state) => state.updateConfigValue);
 
-  const [loading, setLoading] = useState(() => summary === null || health === null || events === null);
+  const [isLoadingState, setLoading] = useState(() => summary === null || health === null || events === null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [backgroundRefreshing, setBackgroundRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [lastRefreshedAt, setLastRefreshedAt] = useState<Date | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -102,6 +110,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
   const [legacyLoaded, setLegacyLoaded] = useState(false);
   const importInputRef = useRef<HTMLInputElement | null>(null);
   const legacyRequestTokenRef = useRef(0);
+  const hasDashboardDataRef = useRef(summary !== null && health !== null && events !== null);
 
   const modelPrices = useMemo(
     () => mergeModelPricesWithDefaults(configModelPrices ?? {}),
@@ -112,8 +121,27 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     [configSelectedPriceModel]
   );
 
-  const loadDashboardData = useCallback(async (force: boolean) => {
-    setLoading(true);
+  useEffect(() => {
+    hasDashboardDataRef.current = summary !== null && health !== null && events !== null;
+  }, [events, health, summary]);
+
+  const loading = isLoadingState || summary === null || health === null || events === null;
+
+  const loadDashboardData = useCallback(async (
+    force: boolean,
+    options: LoadUsageOptions = {}
+  ) => {
+    const silent = options.silent === true;
+
+    if (hasDashboardDataRef.current) {
+      if (silent) {
+        setBackgroundRefreshing(true);
+      } else {
+        setRefreshing(true);
+      }
+    } else {
+      setLoading(true);
+    }
     setError('');
     try {
       await Promise.all([
@@ -174,15 +202,17 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       throw err;
     } finally {
       setLoading(false);
+      setRefreshing(false);
+      setBackgroundRefreshing(false);
     }
   }, [loadUsageChart, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
 
-  const loadUsage = useCallback(async () => {
-    await loadDashboardData(true);
+  const loadUsage = useCallback(async (options: LoadUsageOptions = {}) => {
+    await loadDashboardData(true, options);
   }, [loadDashboardData]);
 
   useEffect(() => {
-    void loadDashboardData(false).catch(() => {});
+    void loadDashboardData(false, { silent: true }).catch(() => {});
   }, [loadDashboardData]);
 
   useEffect(() => {
@@ -271,7 +301,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       );
 
       try {
-        await loadDashboardData(true);
+        await loadDashboardData(true, { silent: true });
         if (legacyLoaded) {
           await loadLegacyUsage();
         }
@@ -328,7 +358,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       await usageApi.updateModelPrices(overrides);
       updateConfigValue('usage-model-prices', overrides);
       try {
-        await loadDashboardData(true);
+        await loadDashboardData(true, { silent: true });
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '';
         showNotification(
@@ -358,6 +388,8 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     health,
     events,
     loading,
+    refreshing,
+    backgroundRefreshing,
     error,
     lastRefreshedAt,
     modelPrices,

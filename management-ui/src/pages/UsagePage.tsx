@@ -130,6 +130,8 @@ export function UsagePage() {
     health,
     events,
     loading,
+    refreshing,
+    backgroundRefreshing,
     error,
     lastRefreshedAt,
     modelPrices,
@@ -186,10 +188,10 @@ export function UsagePage() {
 
   useInterval(
     () => {
-      if (loading || exporting || importing) {
+      if (loading || refreshing || backgroundRefreshing || exporting || importing) {
         return;
       }
-      void loadUsage().catch(() => {});
+      void loadUsage({ silent: true }).catch(() => {});
     },
     AUTO_REFRESH_INTERVAL_MS
   );
@@ -287,7 +289,7 @@ export function UsagePage() {
             size="sm"
             onClick={handleExport}
             loading={exporting}
-            disabled={loading || importing}
+            disabled={loading || refreshing || importing}
           >
             {t('usage_stats.export')}
           </Button>
@@ -296,17 +298,17 @@ export function UsagePage() {
             size="sm"
             onClick={handleImport}
             loading={importing}
-            disabled={loading || exporting}
+            disabled={loading || refreshing || exporting}
           >
             {t('usage_stats.import')}
           </Button>
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void loadUsage().catch(() => {})}
-            disabled={loading || exporting || importing}
+            onClick={() => void loadUsage({ silent: false }).catch(() => {})}
+            disabled={loading || refreshing || exporting || importing}
           >
-            {loading ? t('common.loading') : t('usage_stats.refresh')}
+            {loading || refreshing ? t('common.loading') : t('usage_stats.refresh')}
           </Button>
           <input
             ref={importInputRef}
