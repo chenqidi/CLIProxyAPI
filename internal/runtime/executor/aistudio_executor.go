@@ -308,6 +308,7 @@ func (e *AIStudioExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth
 					break
 				}
 			case wsrelay.MessageTypeStreamEnd:
+				reporter.EnsurePublished(ctx)
 				return false
 			case wsrelay.MessageTypeHTTPResp:
 				if !metadataLogged && event.Status > 0 {

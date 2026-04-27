@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	coreusage "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 )
 
 const (
@@ -853,6 +855,9 @@ func (s *QueryService) repoAndWindow(ctx context.Context, start, end *time.Time,
 	}
 	if ctx == nil {
 		ctx = context.Background()
+	}
+	if err := coreusage.FlushDefault(ctx); err != nil {
+		return nil, window, false, fmt.Errorf("usage manager flush: %w", err)
 	}
 	if err := repo.flush(ctx); err != nil {
 		return nil, window, false, err

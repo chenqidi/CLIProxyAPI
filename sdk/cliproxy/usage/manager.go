@@ -104,10 +104,11 @@ type Manager struct {
 	stopOnce sync.Once
 	cancel   context.CancelFunc
 
-	mu     sync.Mutex
-	cond   *sync.Cond
-	queue  []queueItem
-	closed bool
+	mu       sync.Mutex
+	cond     *sync.Cond
+	queue    []queueItem
+	inFlight int
+	closed   bool
 
 	pluginsMu sync.RWMutex
 	plugins   []Plugin
@@ -179,6 +180,43 @@ func (m *Manager) Publish(ctx context.Context, record Record) {
 	m.cond.Signal()
 }
 
+// Flush waits until all queued and in-flight records have been delivered to
+// registered plugins.
+func (m *Manager) Flush(ctx context.Context) error {
+	if m == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	m.Start(context.Background())
+
+	m.mu.Lock()
+	idle := len(m.queue) == 0 && m.inFlight == 0
+	closed := m.closed
+	m.mu.Unlock()
+	if idle || closed {
+		return nil
+	}
+
+	done := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		for !m.closed && (len(m.queue) > 0 || m.inFlight > 0) {
+			m.cond.Wait()
+		}
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (m *Manager) run(ctx context.Context) {
 	for {
 		m.mu.Lock()
@@ -191,8 +229,15 @@ func (m *Manager) run(ctx context.Context) {
 		}
 		item := m.queue[0]
 		m.queue = m.queue[1:]
+		m.inFlight++
 		m.mu.Unlock()
 		m.dispatch(item)
+		m.mu.Lock()
+		if m.inFlight > 0 {
+			m.inFlight--
+		}
+		m.cond.Broadcast()
+		m.mu.Unlock()
 	}
 }
 
@@ -231,6 +276,10 @@ func RegisterPlugin(plugin Plugin) { DefaultManager().Register(plugin) }
 
 // PublishRecord publishes a record using the default manager.
 func PublishRecord(ctx context.Context, record Record) { DefaultManager().Publish(ctx, record) }
+
+// FlushDefault waits until the default manager has delivered all queued and
+// in-flight records to registered plugins.
+func FlushDefault(ctx context.Context) error { return DefaultManager().Flush(ctx) }
 
 // StartDefault starts the default manager's dispatcher.
 func StartDefault(ctx context.Context) { DefaultManager().Start(ctx) }

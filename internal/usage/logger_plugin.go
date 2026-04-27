@@ -172,14 +172,15 @@ func (s *RequestStatistics) Record(ctx context.Context, record coreusage.Record)
 		return
 	}
 
+	event := NewUsageEvent(ctx, record)
+
 	if repo := s.repository(); repo != nil {
-		if err := repo.Record(ctx, NewUsageEvent(ctx, record)); err != nil {
+		if err := repo.Record(context.Background(), event); err != nil {
 			log.WithError(err).Warn("usage: failed to persist usage event")
 		}
 		return
 	}
 
-	event := NewUsageEvent(ctx, record)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.recordUsageEvent(event)
@@ -250,6 +251,9 @@ func (s *RequestStatistics) Snapshot() StatisticsSnapshot {
 	}
 
 	if repo := s.repository(); repo != nil {
+		if err := coreusage.FlushDefault(context.Background()); err != nil {
+			log.WithError(err).Warn("usage: failed to flush pending usage events before snapshot")
+		}
 		snapshot, err := repo.Snapshot(context.Background())
 		if err != nil {
 			log.WithError(err).Warn("usage: failed to build snapshot from repository")

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor/helps"
+	internalusage "github.com/router-for-me/CLIProxyAPI/v6/internal/usage"
 	cliproxyauth "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/auth"
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
@@ -1381,6 +1383,75 @@ func TestClaudeExecutor_ExecuteStream_SetsIdentityAcceptEncoding(t *testing.T) {
 // TestClaudeExecutor_Execute_SetsCompressedAcceptEncoding verifies that non-streaming
 // requests keep the full accept-encoding to allow response compression (which
 // decodeResponseBody handles correctly).
+
+func TestClaudeExecutor_ExecuteStream_RecordsCompletedRequestWithoutUsageChunk(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+	}))
+	defer server.Close()
+
+	repo, err := internalusage.NewSQLiteRepository(context.Background(), internalusage.SQLiteRepositoryConfig{
+		Path:              filepath.Join(t.TempDir(), "usage.sqlite"),
+		BatchSize:         1,
+		FlushInterval:     10 * time.Millisecond,
+		RetentionDays:     30,
+		RetentionInterval: time.Hour,
+		QueueSize:         32,
+	})
+	if err != nil {
+		t.Fatalf("NewSQLiteRepository() error = %v", err)
+	}
+	stats := internalusage.GetRequestStatistics()
+	stats.SetRepository(repo)
+	internalusage.SetStatisticsEnabled(true)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if errClose := repo.Close(ctx); errClose != nil {
+			t.Fatalf("Close() error = %v", errClose)
+		}
+		stats.SetRepository(nil)
+		internalusage.SetStatisticsEnabled(true)
+	})
+
+	executor := NewClaudeExecutor(&config.Config{})
+	auth := &cliproxyauth.Auth{Attributes: map[string]string{
+		"api_key":  "key-123",
+		"base_url": server.URL,
+	}}
+	payload := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}`)
+
+	result, err := executor.ExecuteStream(context.Background(), auth, cliproxyexecutor.Request{
+		Model:   "claude-3-5-sonnet-20241022",
+		Payload: payload,
+	}, cliproxyexecutor.Options{
+		SourceFormat: sdktranslator.FromString("claude"),
+	})
+	if err != nil {
+		t.Fatalf("ExecuteStream error: %v", err)
+	}
+	for chunk := range result.Chunks {
+		if chunk.Err != nil {
+			t.Fatalf("unexpected chunk error: %v", chunk.Err)
+		}
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		snapshot := stats.Snapshot()
+		if snapshot.TotalRequests == 1 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	snapshot := stats.Snapshot()
+	if snapshot.TotalRequests != 1 {
+		t.Fatalf("TotalRequests = %d, want 1", snapshot.TotalRequests)
+	}
+}
+
 func TestClaudeExecutor_Execute_SetsCompressedAcceptEncoding(t *testing.T) {
 	var gotEncoding, gotAccept string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

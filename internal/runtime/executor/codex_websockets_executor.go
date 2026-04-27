@@ -598,6 +598,8 @@ func (e *CodexWebsocketsExecutor) ExecuteStream(ctx context.Context, auth *clipr
 			if eventType == "response.completed" || eventType == "response.done" {
 				if detail, ok := helps.ParseCodexUsage(payload); ok {
 					reporter.Publish(ctx, detail)
+				} else {
+					reporter.EnsurePublished(ctx)
 				}
 			}
 

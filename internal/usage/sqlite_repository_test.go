@@ -207,6 +207,41 @@ func TestSQLiteRepositoryImportSnapshotSkipsExpiredRows(t *testing.T) {
 	}
 }
 
+func TestLoggerPluginWritesToRepositoryWithCancelledContext(t *testing.T) {
+	repo := newTestSQLiteRepository(t)
+	stats := NewRequestStatistics()
+	stats.SetRepository(repo)
+	plugin := &LoggerPlugin{stats: stats}
+
+	SetStatisticsEnabled(true)
+	t.Cleanup(func() { SetStatisticsEnabled(true) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	plugin.HandleUsage(ctx, coreusage.Record{
+		APIKey:            "cancelled-key",
+		Model:             "gpt-5.4",
+		RequestedAt:       time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC),
+		Latency:           1500 * time.Millisecond,
+		FirstTokenLatency: 250 * time.Millisecond,
+		Detail: coreusage.Detail{
+			InputTokens:  10,
+			OutputTokens: 20,
+			TotalTokens:  30,
+		},
+	})
+
+	snapshot := stats.Snapshot()
+	if snapshot.TotalRequests != 1 {
+		t.Fatalf("TotalRequests = %d, want 1", snapshot.TotalRequests)
+	}
+	details := snapshot.APIs["cancelled-key"].Models["gpt-5.4"].Details
+	if len(details) != 1 {
+		t.Fatalf("details len = %d, want 1", len(details))
+	}
+}
+
 func TestLoggerPluginWritesToRepository(t *testing.T) {
 	repo := newTestSQLiteRepository(t)
 	stats := NewRequestStatistics()
