@@ -82,9 +82,9 @@ const USAGE_TIME_RANGE_MS: Record<Exclude<UsageTimeRange, 'all'>, number> = {
 };
 
 // Source: https://developers.openai.com/api/docs/pricing
-// We currently only keep built-in default prices for GPT-5.4 and GPT-5.3 Codex.
-// GPT-5.4 uses the standard short-context tier instead of the long-context tier.
+// GPT-5.5 and GPT-5.4 use the standard short-context tier instead of conditional long-context uplifts.
 const DEFAULT_MODEL_PRICES: Record<string, ModelPrice> = {
+  'gpt-5.5': { prompt: 5, completion: 30, cache: 0.5 },
   'gpt-5.4': { prompt: 2.5, completion: 15, cache: 0.25 },
   'gpt-5.3-codex': { prompt: 1.75, completion: 14, cache: 0.175 }
 };

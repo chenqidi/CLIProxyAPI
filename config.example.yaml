@@ -76,6 +76,10 @@ usage-statistics:
 # Optional server-side overrides for usage cost calculation in the management UI.
 # Built-in defaults for selected GPT models still apply when an entry is omitted here.
 # usage-model-prices:
+#   gpt-5.5:
+#     prompt: 5
+#     completion: 30
+#     cache: 0.5
 #   gpt-5.4:
 #     prompt: 2.5
 #     completion: 15

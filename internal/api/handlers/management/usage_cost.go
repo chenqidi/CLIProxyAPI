@@ -16,6 +16,7 @@ const usageTokensPerPriceUnit = 1_000_000
 var usageSnapshotModelSuffixRegex = regexp.MustCompile(`-\d{4}-\d{2}-\d{2}$`)
 
 var defaultUsageModelPrices = map[string]config.UsageModelPrice{
+	"gpt-5.5":       {Prompt: 5, Completion: 30, Cache: 0.5},
 	"gpt-5.4":       {Prompt: 2.5, Completion: 15, Cache: 0.25},
 	"gpt-5.3-codex": {Prompt: 1.75, Completion: 14, Cache: 0.175},
 }
