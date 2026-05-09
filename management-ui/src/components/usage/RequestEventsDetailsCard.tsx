@@ -40,7 +40,6 @@ type RequestEventRow = {
   firstTokenLabel: string;
   outputRate: number | null;
   outputRateLabel: string;
-  perfTitle: string;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -259,11 +258,6 @@ export function RequestEventsDetailsCard({
         const latencyLabel = formatDurationMs(latencyMs);
         const firstTokenLabel = formatDurationMs(firstTokenLatencyMs);
         const outputRateLabel = formatOutputRate(outputRate);
-        const perfTitle = [
-          `${t('usage_stats.request_events_first_token')}: ${firstTokenLabel}`,
-          `${t('usage_stats.request_events_latency')}: ${latencyLabel}`,
-          `${t('usage_stats.request_events_output_rate')}: ${outputRateLabel}`
-        ].join(' / ');
 
         return {
           id: `${timestamp}-${item.model}-${provider}-${authFile}-${authIndex}-${index}`,
@@ -284,7 +278,6 @@ export function RequestEventsDetailsCard({
           firstTokenLabel,
           outputRate,
           outputRateLabel,
-          perfTitle,
           inputTokens,
           outputTokens,
           reasoningTokens,
@@ -624,32 +617,32 @@ export function RequestEventsDetailsCard({
               <tbody>
                 {renderedRows.map((row) => (
                   <tr key={row.id}>
-                    <td title={row.timestampLabel} className={styles.requestEventsTimestamp}>
+                    <td className={styles.requestEventsTimestamp}>
                       {row.timestampLabel}
                     </td>
-                    <td className={styles.modelCell} title={row.model}>
+                    <td className={styles.modelCell}>
                       {row.model}
                     </td>
-                    <td className={styles.requestEventsProviderCell} title={row.provider}>
+                    <td className={styles.requestEventsProviderCell}>
                       {row.provider}
                     </td>
-                    <td className={styles.requestEventsAuthFile}>
+                    <td className={styles.requestEventsAuthFile} title={row.authFile}>
                       {row.authFile}
                     </td>
-                    <td className={styles.requestEventsApiKeyCell} title={row.maskedApiKey}>
+                    <td className={styles.requestEventsApiKeyCell}>
                       {row.maskedApiKey}
                     </td>
-                    <td title={row.failed ? t('stats.failure') : t('stats.success')}>
+                    <td>
                       <span
                         className={row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}
                       >
                         {row.failed ? t('stats.failure') : t('stats.success')}
                       </span>
                     </td>
-                    <td className={styles.requestEventsCostCell} title={row.costLabel}>
+                    <td className={styles.requestEventsCostCell}>
                       {row.costLabel}
                     </td>
-                    <td title={row.perfTitle}>
+                    <td>
                       <span className={styles.requestEventsPerfValues}>
                         <span className={styles.requestEventsPerfFirstToken}>
                           {row.firstTokenLabel}
@@ -662,22 +655,22 @@ export function RequestEventsDetailsCard({
                         </span>
                       </span>
                     </td>
-                    <td className={styles.requestEventsNumericCell} title={row.inputTokens.toLocaleString()}>
+                    <td className={styles.requestEventsNumericCell}>
                       {row.inputTokens.toLocaleString()}
                     </td>
-                    <td className={styles.requestEventsNumericCell} title={row.outputTokens.toLocaleString()}>
+                    <td className={styles.requestEventsNumericCell}>
                       {row.outputTokens.toLocaleString()}
                     </td>
-                    <td className={styles.requestEventsNumericCell} title={row.reasoningTokens.toLocaleString()}>
+                    <td className={styles.requestEventsNumericCell}>
                       {row.reasoningTokens.toLocaleString()}
                     </td>
-                    <td className={styles.requestEventsNumericCell} title={row.cachedTokens.toLocaleString()}>
+                    <td className={styles.requestEventsNumericCell}>
                       {row.cachedTokens.toLocaleString()}
                     </td>
-                    <td className={styles.requestEventsNumericCell} title={row.totalTokens.toLocaleString()}>
+                    <td className={styles.requestEventsNumericCell}>
                       {row.totalTokens.toLocaleString()}
                     </td>
-                    <td className={styles.requestEventsClientIpCell} title={row.clientIp}>
+                    <td className={styles.requestEventsClientIpCell}>
                       {row.clientIp}
                     </td>
                   </tr>
