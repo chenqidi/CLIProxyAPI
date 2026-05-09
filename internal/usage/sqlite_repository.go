@@ -130,6 +130,7 @@ func (r *SQLiteRepository) ensureSchema(ctx context.Context) error {
 			provider TEXT NOT NULL,
 			model TEXT NOT NULL,
 			api_key TEXT NOT NULL,
+			client_ip TEXT NOT NULL DEFAULT '',
 			request_method TEXT NOT NULL DEFAULT '',
 			request_path TEXT NOT NULL DEFAULT '',
 			auth_id TEXT NOT NULL,
@@ -160,6 +161,7 @@ func (r *SQLiteRepository) ensureSchema(ctx context.Context) error {
 		`ALTER TABLE usage_events ADD COLUMN request_method TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE usage_events ADD COLUMN request_path TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE usage_events ADD COLUMN first_token_latency_ms INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE usage_events ADD COLUMN client_ip TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, statement := range alterStatements {
 		if _, err := r.db.ExecContext(ctx, statement); err != nil {
@@ -435,6 +437,7 @@ func (r *SQLiteRepository) insertBatch(ctx context.Context, batch []UsageEvent) 
 		provider,
 		model,
 		api_key,
+		client_ip,
 		request_method,
 		request_path,
 		auth_id,
@@ -449,7 +452,7 @@ func (r *SQLiteRepository) insertBatch(ctx context.Context, batch []UsageEvent) 
 		cached_tokens,
 		total_tokens,
 		dedup_key
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return fmt.Errorf("usage sqlite repository: prepare insert: %w", err)
 	}
@@ -463,6 +466,7 @@ func (r *SQLiteRepository) insertBatch(ctx context.Context, batch []UsageEvent) 
 			event.Provider,
 			event.Model,
 			event.APIKey,
+			event.ClientIP,
 			event.RequestMethod,
 			event.RequestPath,
 			event.AuthID,
@@ -527,6 +531,7 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 		provider,
 		model,
 		api_key,
+		client_ip,
 		auth_id,
 		auth_index,
 		source,
@@ -553,6 +558,7 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 			provider            string
 			model               string
 			apiKey              string
+			clientIP            string
 			authID              string
 			authIndex           string
 			source              string
@@ -570,6 +576,7 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 			&provider,
 			&model,
 			&apiKey,
+			&clientIP,
 			&authID,
 			&authIndex,
 			&source,
@@ -590,6 +597,7 @@ func (r *SQLiteRepository) snapshotFromDatabase(ctx context.Context) (Statistics
 			Provider:            provider,
 			Model:               model,
 			APIKey:              apiKey,
+			ClientIP:            clientIP,
 			AuthID:              authID,
 			AuthIndex:           authIndex,
 			Source:              source,

@@ -136,6 +136,7 @@ export function UsagePage() {
     lastRefreshedAt,
     eventsPage,
     eventsPageSize,
+    eventsModelFilter,
     modelPrices,
     selectedPriceModel,
     setSelectedPriceModel,
@@ -143,6 +144,7 @@ export function UsagePage() {
     loadUsage,
     setEventsPage,
     setEventsPageSize,
+    setEventsModelFilter,
     legacyUsage,
     legacyLoading,
     legacyLoaded,
@@ -352,6 +354,9 @@ export function UsagePage() {
         pageSize={eventsPageSize}
         onPageChange={setEventsPage}
         onPageSizeChange={setEventsPageSize}
+        modelNames={modelNames}
+        modelFilter={eventsModelFilter}
+        onModelFilterChange={setEventsModelFilter}
         geminiKeys={config?.geminiApiKeys || []}
         claudeConfigs={config?.claudeApiKeys || []}
         codexConfigs={config?.codexApiKeys || []}

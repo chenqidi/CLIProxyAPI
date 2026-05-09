@@ -6,6 +6,7 @@ package usage
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -84,6 +85,7 @@ type RequestDetail struct {
 	Timestamp           time.Time  `json:"timestamp"`
 	LatencyMs           int64      `json:"latency_ms"`
 	FirstTokenLatencyMs int64      `json:"first_token_latency_ms"`
+	ClientIP            string     `json:"client_ip,omitempty"`
 	Source              string     `json:"source"`
 	AuthIndex           string     `json:"auth_index"`
 	Tokens              TokenStats `json:"tokens"`
@@ -216,6 +218,7 @@ func (s *RequestStatistics) recordUsageEvent(event UsageEvent) {
 		Timestamp:           event.RequestedAt,
 		LatencyMs:           event.LatencyMs,
 		FirstTokenLatencyMs: event.FirstTokenLatencyMs,
+		ClientIP:            event.ClientIP,
 		Source:              event.Source,
 		AuthIndex:           event.AuthIndex,
 		Tokens:              event.Tokens,
@@ -395,6 +398,17 @@ func resolveRequestIdentity(ctx context.Context) (string, string) {
 		}
 	}
 	return "", ""
+}
+
+func resolveClientIP(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	ginCtx, ok := ctx.Value("gin").(*gin.Context)
+	if !ok || ginCtx == nil {
+		return ""
+	}
+	return strings.TrimSpace(ginCtx.ClientIP())
 }
 
 func resolveAPIIdentifier(ctx context.Context, record coreusage.Record) string {

@@ -137,6 +137,7 @@ interface UsageEventItemResponse {
   provider?: string;
   model?: string;
   api_key?: string;
+  client_ip?: string;
   request_method?: string;
   request_path?: string;
   auth_id?: string;
@@ -220,6 +221,7 @@ export interface UsageEventItem {
   provider: string;
   model: string;
   apiKey: string;
+  clientIp: string;
   requestMethod: string;
   requestPath: string;
   authId: string;
@@ -495,6 +497,7 @@ const adaptUsageEventItem = (value: unknown): UsageEventItem => {
     provider: toText(record?.provider) || 'unknown',
     model: toText(record?.model) || 'unknown',
     apiKey: toText(record?.api_key),
+    clientIp: toText(record?.client_ip),
     requestMethod: toText(record?.request_method).toUpperCase(),
     requestPath: toText(record?.request_path),
     authId: toText(record?.auth_id),

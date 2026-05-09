@@ -11,10 +11,11 @@ import (
 
 // UsageEvent represents a normalized usage event ready for persistence.
 type UsageEvent struct {
-	RequestedAt   time.Time
+	RequestedAt         time.Time
 	Provider            string
 	Model               string
 	APIKey              string
+	ClientIP            string
 	RequestMethod       string
 	RequestPath         string
 	AuthID              string
@@ -61,6 +62,7 @@ func NewUsageEvent(ctx context.Context, record coreusage.Record) UsageEvent {
 		Provider:            strings.TrimSpace(record.Provider),
 		Model:               strings.TrimSpace(record.Model),
 		APIKey:              apiKey,
+		ClientIP:            firstNonEmpty(record.ClientIP, resolveClientIP(ctx)),
 		RequestMethod:       requestMethod,
 		RequestPath:         requestPath,
 		AuthID:              strings.TrimSpace(record.AuthID),
@@ -86,6 +88,7 @@ func ImportedUsageEvent(apiName, modelName string, detail RequestDetail) (UsageE
 		RequestedAt:         detail.Timestamp.UTC(),
 		Model:               strings.TrimSpace(modelName),
 		APIKey:              apiName,
+		ClientIP:            strings.TrimSpace(detail.ClientIP),
 		RequestMethod:       requestMethod,
 		RequestPath:         requestPath,
 		AuthIndex:           strings.TrimSpace(detail.AuthIndex),
@@ -121,6 +124,7 @@ func normaliseUsageEvent(event UsageEvent) UsageEvent {
 	if event.APIKey == "" {
 		event.APIKey = "unknown"
 	}
+	event.ClientIP = strings.TrimSpace(event.ClientIP)
 	event.RequestMethod = normaliseRequestMethod(event.RequestMethod)
 	event.RequestPath = normaliseRequestPath(event.RequestPath)
 	if event.RequestPath == "" {
@@ -146,6 +150,15 @@ func normaliseUsageEvent(event UsageEvent) UsageEvent {
 	event.Tokens = normaliseTokenStats(event.Tokens)
 	event.DedupKey = buildDedupKey(event.APIKey, event.Model, event.RequestedAt, event.Source, event.AuthIndex, event.Failed, event.Tokens)
 	return event
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func normaliseRequestMethod(value string) string {
