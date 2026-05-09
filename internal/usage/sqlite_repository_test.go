@@ -222,7 +222,7 @@ func TestLoggerPluginWritesToRepositoryWithCancelledContext(t *testing.T) {
 	plugin.HandleUsage(ctx, coreusage.Record{
 		APIKey:            "cancelled-key",
 		Model:             "gpt-5.4",
-		RequestedAt:       time.Date(2026, 4, 2, 10, 0, 0, 0, time.UTC),
+		RequestedAt:       time.Now().UTC().Add(-time.Hour).Truncate(time.Second),
 		Latency:           1500 * time.Millisecond,
 		FirstTokenLatency: 250 * time.Millisecond,
 		Detail: coreusage.Detail{
@@ -254,7 +254,7 @@ func TestLoggerPluginWritesToRepository(t *testing.T) {
 	plugin.HandleUsage(context.Background(), coreusage.Record{
 		APIKey:            "plugin-key",
 		Model:             "gpt-5.4",
-		RequestedAt:       time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC),
+		RequestedAt:       time.Now().UTC().Add(-time.Hour).Truncate(time.Second),
 		Latency:           1500 * time.Millisecond,
 		FirstTokenLatency: 250 * time.Millisecond,
 		Detail: coreusage.Detail{

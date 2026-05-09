@@ -2,9 +2,12 @@ package usage
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
 	coreusage "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/usage"
 )
 
@@ -33,6 +36,35 @@ func TestRequestStatisticsRecordIncludesLatency(t *testing.T) {
 	}
 	if details[0].FirstTokenLatencyMs != 320 {
 		t.Fatalf("first_token_latency_ms = %d, want 320", details[0].FirstTokenLatencyMs)
+	}
+}
+
+func TestRequestStatisticsRecordIncludesClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	stats := NewRequestStatistics()
+	rec := httptest.NewRecorder()
+	ginCtx, _ := gin.CreateTestContext(rec)
+	req := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	req.RemoteAddr = "192.0.2.10:3456"
+	ginCtx.Request = req
+
+	stats.Record(context.WithValue(context.Background(), "gin", ginCtx), coreusage.Record{
+		APIKey:      "test-key",
+		Model:       "gpt-5.4",
+		RequestedAt: time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC),
+		Detail: coreusage.Detail{
+			TotalTokens: 1,
+		},
+	})
+
+	snapshot := stats.Snapshot()
+	details := snapshot.APIs["test-key"].Models["gpt-5.4"].Details
+	if len(details) != 1 {
+		t.Fatalf("details len = %d, want 1", len(details))
+	}
+	if details[0].ClientIP != "192.0.2.10" {
+		t.Fatalf("client_ip = %q, want %q", details[0].ClientIP, "192.0.2.10")
 	}
 }
 

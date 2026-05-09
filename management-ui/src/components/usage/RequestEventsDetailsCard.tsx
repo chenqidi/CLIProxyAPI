@@ -29,6 +29,8 @@ type RequestEventRow = {
   model: string;
   provider: string;
   authFile: string;
+  maskedApiKey: string;
+  clientIp: string;
   failed: boolean;
   cost: number;
   costLabel: string;
@@ -38,6 +40,7 @@ type RequestEventRow = {
   firstTokenLabel: string;
   outputRate: number | null;
   outputRateLabel: string;
+  perfTitle: string;
   inputTokens: number;
   outputTokens: number;
   reasoningTokens: number;
@@ -50,8 +53,11 @@ export interface RequestEventsDetailsCardProps {
   loading: boolean;
   page: number;
   pageSize: number;
+  modelNames: string[];
+  modelFilter: string;
   onPageChange: (page: number) => void;
   onPageSizeChange: (pageSize: number) => void;
+  onModelFilterChange: (model: string) => void;
   geminiKeys: GeminiKeyConfig[];
   claudeConfigs: ProviderKeyConfig[];
   codexConfigs: ProviderKeyConfig[];
@@ -129,13 +135,47 @@ const resolveAuthFileName = (sourceRaw: string, authInfo?: CredentialInfo): stri
   return sourceText && looksLikeAuthFileName(sourceText) ? sourceText : '-';
 };
 
+const isEndpointIdentifier = (value: string): boolean => {
+  const text = value.trim();
+  return (
+    text.startsWith('/') ||
+    /^(GET|POST|PUT|PATCH|DELETE|OPTIONS|HEAD)\s+\//i.test(text)
+  );
+};
+
+const maskRequestApiKey = (value: unknown): string => {
+  const text =
+    typeof value === 'string'
+      ? value.trim()
+      : value === null || value === undefined
+        ? ''
+        : String(value).trim();
+
+  if (!text || text === 'unknown' || isEndpointIdentifier(text)) return '-';
+  if (text.length <= 6) return text;
+  return `${text.slice(0, 3)}***${text.slice(-3)}`;
+};
+
+const normalizeClientIpLabel = (value: unknown): string => {
+  const text =
+    typeof value === 'string'
+      ? value.trim()
+      : value === null || value === undefined
+        ? ''
+        : String(value).trim();
+  return text || '-';
+};
+
 export function RequestEventsDetailsCard({
   events,
   loading,
   page,
   pageSize,
+  modelNames,
+  modelFilter,
   onPageChange,
   onPageSizeChange,
+  onModelFilterChange,
   geminiKeys,
   claudeConfigs,
   codexConfigs,
@@ -145,7 +185,6 @@ export function RequestEventsDetailsCard({
 }: RequestEventsDetailsCardProps) {
   const { t, i18n } = useTranslation();
 
-  const [modelFilter, setModelFilter] = useState(ALL_FILTER);
   const [providerFilter, setProviderFilter] = useState(ALL_FILTER);
   const [authFileFilter, setAuthFileFilter] = useState(ALL_FILTER);
   const [authFileMap, setAuthFileMap] = useState<Map<string, CredentialInfo>>(new Map());
@@ -201,6 +240,8 @@ export function RequestEventsDetailsCard({
         const authInfo = authIndex !== '-' ? authFileMap.get(authIndex) : undefined;
         const provider = normalizeProviderLabel(item.provider || sourceInfo?.type || authInfo?.type);
         const authFile = resolveAuthFileName(sourceRaw, authInfo);
+        const maskedApiKey = maskRequestApiKey(item.apiKey);
+        const clientIp = normalizeClientIpLabel(item.clientIp);
         const model = item.model || '-';
         const inputTokens = Math.max(item.tokens.inputTokens, 0);
         const outputTokens = Math.max(item.tokens.outputTokens, 0);
@@ -215,6 +256,14 @@ export function RequestEventsDetailsCard({
           modelPrices
         );
         const outputRate = calculateOutputRate(outputTokens, latencyMs);
+        const latencyLabel = formatDurationMs(latencyMs);
+        const firstTokenLabel = formatDurationMs(firstTokenLatencyMs);
+        const outputRateLabel = formatOutputRate(outputRate);
+        const perfTitle = [
+          `${t('usage_stats.request_events_first_token')}: ${firstTokenLabel}`,
+          `${t('usage_stats.request_events_latency')}: ${latencyLabel}`,
+          `${t('usage_stats.request_events_output_rate')}: ${outputRateLabel}`
+        ].join(' / ');
 
         return {
           id: `${timestamp}-${item.model}-${provider}-${authFile}-${authIndex}-${index}`,
@@ -224,15 +273,18 @@ export function RequestEventsDetailsCard({
           model,
           provider,
           authFile,
+          maskedApiKey,
+          clientIp,
           failed: item.failed === true,
           cost,
           costLabel: formatPreciseUsd(cost),
           latencyMs,
-          latencyLabel: formatDurationMs(latencyMs),
+          latencyLabel,
           firstTokenLatencyMs,
-          firstTokenLabel: formatDurationMs(firstTokenLatencyMs),
+          firstTokenLabel,
           outputRate,
-          outputRateLabel: formatOutputRate(outputRate),
+          outputRateLabel,
+          perfTitle,
           inputTokens,
           outputTokens,
           reasoningTokens,
@@ -241,17 +293,28 @@ export function RequestEventsDetailsCard({
         };
       })
       .sort((a, b) => b.timestampMs - a.timestampMs);
-  }, [authFileMap, events, i18n.language, modelPrices, sourceInfoMap]);
+  }, [authFileMap, events, i18n.language, modelPrices, sourceInfoMap, t]);
+
+  const selectedModelFilter = modelFilter.trim() || ALL_FILTER;
 
   const modelOptions = useMemo(
     () => [
       { value: ALL_FILTER, label: t('usage_stats.filter_all') },
-      ...Array.from(new Set(rows.map((row) => row.model))).map((model) => ({
-        value: model,
-        label: model
-      }))
+      ...Array.from(
+        new Set([
+          selectedModelFilter === ALL_FILTER ? '' : selectedModelFilter,
+          ...modelNames,
+          ...rows.map((row) => row.model)
+        ])
+      )
+        .filter((model) => model.trim() !== '')
+        .sort((left, right) => left.localeCompare(right))
+        .map((model) => ({
+          value: model,
+          label: model
+        }))
     ],
-    [rows, t]
+    [modelNames, rows, selectedModelFilter, t]
   );
 
   const providerOptions = useMemo(
@@ -286,7 +349,7 @@ export function RequestEventsDetailsCard({
     [authFileOptions]
   );
 
-  const effectiveModelFilter = modelOptionSet.has(modelFilter) ? modelFilter : ALL_FILTER;
+  const effectiveModelFilter = modelOptionSet.has(selectedModelFilter) ? selectedModelFilter : ALL_FILTER;
   const effectiveProviderFilter = providerOptionSet.has(providerFilter) ? providerFilter : ALL_FILTER;
   const effectiveAuthFileFilter = authFileOptionSet.has(authFileFilter)
     ? authFileFilter
@@ -328,8 +391,12 @@ export function RequestEventsDetailsCard({
     effectiveProviderFilter !== ALL_FILTER ||
     effectiveAuthFileFilter !== ALL_FILTER;
 
+  const handleModelFilterChange = (value: string) => {
+    onModelFilterChange(value === ALL_FILTER ? '' : value);
+  };
+
   const handleClearFilters = () => {
-    setModelFilter(ALL_FILTER);
+    onModelFilterChange('');
     setProviderFilter(ALL_FILTER);
     setAuthFileFilter(ALL_FILTER);
   };
@@ -342,6 +409,7 @@ export function RequestEventsDetailsCard({
       'model',
       'provider',
       'auth_file',
+      'api_key',
       'result',
       'cost_usd',
       'first_token_latency_ms',
@@ -351,7 +419,8 @@ export function RequestEventsDetailsCard({
       'output_tokens',
       'reasoning_tokens',
       'cached_tokens',
-      'total_tokens'
+      'total_tokens',
+      'client_ip'
     ];
 
     const csvRows = filteredRows.map((row) =>
@@ -360,6 +429,7 @@ export function RequestEventsDetailsCard({
         row.model,
         row.provider,
         row.authFile,
+        row.maskedApiKey === '-' ? '' : row.maskedApiKey,
         row.failed ? 'failed' : 'success',
         row.cost > 0 ? row.cost : '',
         row.firstTokenLatencyMs || '',
@@ -369,7 +439,8 @@ export function RequestEventsDetailsCard({
         row.outputTokens,
         row.reasoningTokens,
         row.cachedTokens,
-        row.totalTokens
+        row.totalTokens,
+        row.clientIp === '-' ? '' : row.clientIp
       ]
         .map((value) => encodeCsv(value))
         .join(',')
@@ -391,6 +462,7 @@ export function RequestEventsDetailsCard({
       model: row.model,
       provider: row.provider,
       auth_file: row.authFile,
+      api_key: row.maskedApiKey === '-' ? null : row.maskedApiKey,
       failed: row.failed,
       cost_usd: row.cost > 0 ? row.cost : null,
       first_token_latency_ms: row.firstTokenLatencyMs || null,
@@ -402,7 +474,8 @@ export function RequestEventsDetailsCard({
         reasoning_tokens: row.reasoningTokens,
         cached_tokens: row.cachedTokens,
         total_tokens: row.totalTokens
-      }
+      },
+      client_ip: row.clientIp === '-' ? null : row.clientIp
     }));
 
     const content = JSON.stringify(payload, null, 2);
@@ -453,7 +526,7 @@ export function RequestEventsDetailsCard({
           <Select
             value={effectiveModelFilter}
             options={modelOptions}
-            onChange={setModelFilter}
+            onChange={handleModelFilterChange}
             className={styles.requestEventsSelect}
             ariaLabel={t('usage_stats.request_events_filter_model')}
             fullWidth={false}
@@ -519,6 +592,7 @@ export function RequestEventsDetailsCard({
                 <col className={styles.requestEventsColModel} />
                 <col className={styles.requestEventsColProvider} />
                 <col className={styles.requestEventsColAuthFile} />
+                <col className={styles.requestEventsColApiKey} />
                 <col className={styles.requestEventsColResult} />
                 <col className={styles.requestEventsColCost} />
                 <col className={styles.requestEventsColPerf} />
@@ -527,6 +601,7 @@ export function RequestEventsDetailsCard({
                 <col className={styles.requestEventsColReasoningTokens} />
                 <col className={styles.requestEventsColCachedTokens} />
                 <col className={styles.requestEventsColTotalTokens} />
+                <col className={styles.requestEventsColClientIp} />
               </colgroup>
               <thead>
                 <tr>
@@ -534,6 +609,7 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.model_name')}</th>
                   <th>{t('usage_stats.request_events_source')}</th>
                   <th>{t('usage_stats.request_events_auth_index')}</th>
+                  <th>{t('usage_stats.request_events_api_key')}</th>
                   <th>{t('usage_stats.request_events_result')}</th>
                   <th>{t('usage_stats.request_events_cost')}</th>
                   <th>{t('usage_stats.request_events_perf')}</th>
@@ -542,47 +618,68 @@ export function RequestEventsDetailsCard({
                   <th>{t('usage_stats.reasoning_tokens')}</th>
                   <th>{t('usage_stats.cached_tokens')}</th>
                   <th>{t('usage_stats.total_tokens')}</th>
+                  <th>{t('usage_stats.request_events_client_ip')}</th>
                 </tr>
               </thead>
               <tbody>
                 {renderedRows.map((row) => (
                   <tr key={row.id}>
-                    <td title={row.timestamp} className={styles.requestEventsTimestamp}>
+                    <td title={row.timestampLabel} className={styles.requestEventsTimestamp}>
                       {row.timestampLabel}
                     </td>
-                    <td className={styles.modelCell}>{row.model}</td>
+                    <td className={styles.modelCell} title={row.model}>
+                      {row.model}
+                    </td>
                     <td className={styles.requestEventsProviderCell} title={row.provider}>
                       {row.provider}
                     </td>
-                    <td className={styles.requestEventsAuthFile} title={row.authFile}>
+                    <td className={styles.requestEventsAuthFile}>
                       {row.authFile}
                     </td>
-                    <td>
+                    <td className={styles.requestEventsApiKeyCell} title={row.maskedApiKey}>
+                      {row.maskedApiKey}
+                    </td>
+                    <td title={row.failed ? t('stats.failure') : t('stats.success')}>
                       <span
                         className={row.failed ? styles.requestEventsResultFailed : styles.requestEventsResultSuccess}
                       >
                         {row.failed ? t('stats.failure') : t('stats.success')}
                       </span>
                     </td>
-                    <td className={styles.requestEventsCostCell}>{row.costLabel}</td>
-                    <td>
-                      <div className={styles.requestEventsPerfStack}>
-                        <span className={styles.requestEventsPerfPillSuccess}>
-                          {t('usage_stats.request_events_first_token')}: {row.firstTokenLabel}
-                        </span>
-                        <span className={styles.requestEventsPerfPill}>
-                          {t('usage_stats.request_events_latency')}: {row.latencyLabel}
-                        </span>
-                        <span className={styles.requestEventsPerfPill}>
-                          {t('usage_stats.request_events_output_rate')}: {row.outputRateLabel}
-                        </span>
-                      </div>
+                    <td className={styles.requestEventsCostCell} title={row.costLabel}>
+                      {row.costLabel}
                     </td>
-                    <td className={styles.requestEventsNumericCell}>{row.inputTokens.toLocaleString()}</td>
-                    <td className={styles.requestEventsNumericCell}>{row.outputTokens.toLocaleString()}</td>
-                    <td className={styles.requestEventsNumericCell}>{row.reasoningTokens.toLocaleString()}</td>
-                    <td className={styles.requestEventsNumericCell}>{row.cachedTokens.toLocaleString()}</td>
-                    <td className={styles.requestEventsNumericCell}>{row.totalTokens.toLocaleString()}</td>
+                    <td title={row.perfTitle}>
+                      <span className={styles.requestEventsPerfValues}>
+                        <span className={styles.requestEventsPerfFirstToken}>
+                          {row.firstTokenLabel}
+                        </span>
+                        <span className={styles.requestEventsPerfLatency}>
+                          {row.latencyLabel}
+                        </span>
+                        <span className={styles.requestEventsPerfOutputRate}>
+                          {row.outputRateLabel}
+                        </span>
+                      </span>
+                    </td>
+                    <td className={styles.requestEventsNumericCell} title={row.inputTokens.toLocaleString()}>
+                      {row.inputTokens.toLocaleString()}
+                    </td>
+                    <td className={styles.requestEventsNumericCell} title={row.outputTokens.toLocaleString()}>
+                      {row.outputTokens.toLocaleString()}
+                    </td>
+                    <td className={styles.requestEventsNumericCell} title={row.reasoningTokens.toLocaleString()}>
+                      {row.reasoningTokens.toLocaleString()}
+                    </td>
+                    <td className={styles.requestEventsNumericCell} title={row.cachedTokens.toLocaleString()}>
+                      {row.cachedTokens.toLocaleString()}
+                    </td>
+                    <td className={styles.requestEventsNumericCell} title={row.totalTokens.toLocaleString()}>
+                      {row.totalTokens.toLocaleString()}
+                    </td>
+                    <td className={styles.requestEventsClientIpCell} title={row.clientIp}>
+                      {row.clientIp}
+                    </td>
                   </tr>
                 ))}
               </tbody>

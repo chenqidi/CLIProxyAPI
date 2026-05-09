@@ -54,6 +54,7 @@ export interface UseUsageDataReturn {
   lastRefreshedAt: Date | null;
   eventsPage: number;
   eventsPageSize: number;
+  eventsModelFilter: string;
   modelPrices: Record<string, ModelPrice>;
   selectedPriceModel: string;
   setSelectedPriceModel: (model: string) => Promise<boolean>;
@@ -64,6 +65,7 @@ export interface UseUsageDataReturn {
   loadUsage: (options?: LoadUsageOptions) => Promise<void>;
   setEventsPage: (page: number) => void;
   setEventsPageSize: (pageSize: number) => void;
+  setEventsModelFilter: (model: string) => void;
   legacyUsage: UsagePayload | null;
   legacyLoading: boolean;
   legacyLoaded: boolean;
@@ -84,6 +86,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
   const { showNotification } = useNotificationStore();
   const [eventsPage, setEventsPageState] = useState(1);
   const [eventsPageSize, setEventsPageSizeState] = useState(DEFAULT_EVENTS_PAGE_SIZE);
+  const [eventsModelFilter, setEventsModelFilterState] = useState('');
   const summaryKey = useMemo(() => buildUsageSummaryCacheKey(timeRange), [timeRange]);
   const healthKey = useMemo(() => buildUsageHealthCacheKey(), []);
   const eventsKey = useMemo(
@@ -93,8 +96,9 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
         page: eventsPage,
         pageSize: eventsPageSize,
         includeTotal: false,
+        model: eventsModelFilter || undefined,
       }),
-    [eventsPage, eventsPageSize, timeRange]
+    [eventsModelFilter, eventsPage, eventsPageSize, timeRange]
   );
 
   const summary = useUsageDashboardStore((state) => state.summaryCache[summaryKey]?.data ?? null);
@@ -211,7 +215,13 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     setError('');
     try {
       await loadUsageEvents(
-        { range: timeRange, page: eventsPage, pageSize: eventsPageSize, includeTotal: false },
+        {
+          range: timeRange,
+          page: eventsPage,
+          pageSize: eventsPageSize,
+          includeTotal: false,
+          model: eventsModelFilter || undefined,
+        },
         { force, staleTimeMs: USAGE_DASHBOARD_STALE_TIME_MS }
       );
 
@@ -230,7 +240,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
       setRefreshing(false);
       setBackgroundRefreshing(false);
     }
-  }, [eventsPage, eventsPageSize, loadDashboardCharts, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
+  }, [eventsModelFilter, eventsPage, eventsPageSize, loadDashboardCharts, loadUsageEvents, loadUsageHealth, loadUsageSummary, t, timeRange]);
 
   const loadUsage = useCallback(async (options: LoadUsageOptions = {}) => {
     await loadDashboardData(true, options);
@@ -243,6 +253,11 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
   const setEventsPageSize = useCallback((pageSize: number) => {
     const safePageSize = Number.isFinite(pageSize) ? Math.max(1, Math.round(pageSize)) : DEFAULT_EVENTS_PAGE_SIZE;
     setEventsPageSizeState(safePageSize);
+    setEventsPageState(1);
+  }, []);
+
+  const setEventsModelFilter = useCallback((model: string) => {
+    setEventsModelFilterState(model.trim());
     setEventsPageState(1);
   }, []);
 
@@ -429,6 +444,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     lastRefreshedAt,
     eventsPage,
     eventsPageSize,
+    eventsModelFilter,
     modelPrices,
     selectedPriceModel,
     setSelectedPriceModel: handleSetSelectedPriceModel,
@@ -436,6 +452,7 @@ export function useUsageData(options: UseUsageDataOptions): UseUsageDataReturn {
     loadUsage,
     setEventsPage,
     setEventsPageSize,
+    setEventsModelFilter,
     legacyUsage,
     legacyLoading,
     legacyLoaded,

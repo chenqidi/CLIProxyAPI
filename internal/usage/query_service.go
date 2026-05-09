@@ -146,6 +146,7 @@ type UsageEventItem struct {
 	Provider            string     `json:"provider"`
 	Model               string     `json:"model"`
 	APIKey              string     `json:"api_key"`
+	ClientIP            string     `json:"client_ip"`
 	RequestMethod       string     `json:"request_method"`
 	RequestPath         string     `json:"request_path"`
 	AuthID              string     `json:"auth_id"`
@@ -673,6 +674,7 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 		provider,
 		model,
 		api_key,
+		client_ip,
 		request_method,
 		request_path,
 		auth_id,
@@ -702,6 +704,7 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 			provider            string
 			model               string
 			apiKey              string
+			clientIP            string
 			requestMethod       string
 			requestPath         string
 			authID              string
@@ -721,6 +724,7 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 			&provider,
 			&model,
 			&apiKey,
+			&clientIP,
 			&requestMethod,
 			&requestPath,
 			&authID,
@@ -756,6 +760,7 @@ func (s *QueryService) Events(ctx context.Context, query UsageEventsQuery) (Usag
 			Provider:            strings.TrimSpace(provider),
 			Model:               strings.TrimSpace(model),
 			APIKey:              strings.TrimSpace(apiKey),
+			ClientIP:            strings.TrimSpace(clientIP),
 			RequestMethod:       requestMethod,
 			RequestPath:         requestPath,
 			AuthID:              strings.TrimSpace(authID),

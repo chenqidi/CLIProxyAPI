@@ -99,6 +99,7 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 		Provider:            "codex",
 		Model:               "gpt-5.4-mini",
 		APIKey:              "key-c",
+		ClientIP:            "192.0.2.10",
 		RequestMethod:       "POST",
 		RequestPath:         "/v1/messages",
 		AuthID:              "auth-c",
@@ -232,6 +233,9 @@ func TestGetUsageSummaryAndEvents(t *testing.T) {
 	}
 	if events.Items[0].FirstTokenLatencyMs != 180 {
 		t.Fatalf("events first_token_latency_ms = %d, want 180", events.Items[0].FirstTokenLatencyMs)
+	}
+	if events.Items[0].APIKey != "key-c" || events.Items[0].ClientIP != "192.0.2.10" {
+		t.Fatalf("events api_key/client_ip = %q/%q, want key-c/192.0.2.10", events.Items[0].APIKey, events.Items[0].ClientIP)
 	}
 }
 

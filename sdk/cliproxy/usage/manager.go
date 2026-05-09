@@ -14,6 +14,7 @@ type Record struct {
 	Provider          string
 	Model             string
 	APIKey            string
+	ClientIP          string
 	AuthID            string
 	AuthIndex         string
 	AuthType          string

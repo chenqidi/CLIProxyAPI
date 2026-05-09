@@ -37,6 +37,7 @@ func TestQueryServiceSummaryChartsAndEvents(t *testing.T) {
 		Provider:            "codex",
 		Model:               "gpt-5.4-mini",
 		APIKey:              "key-b",
+		ClientIP:            "192.0.2.10",
 		RequestMethod:       "POST",
 		RequestPath:         "/v1/messages",
 		AuthIndex:           "2",
@@ -151,6 +152,9 @@ func TestQueryServiceSummaryChartsAndEvents(t *testing.T) {
 	}
 	if events.Items[0].FirstTokenLatencyMs != 250 {
 		t.Fatalf("event first_token_latency_ms = %d, want 250", events.Items[0].FirstTokenLatencyMs)
+	}
+	if events.Items[0].ClientIP != "192.0.2.10" {
+		t.Fatalf("event client_ip = %q, want %q", events.Items[0].ClientIP, "192.0.2.10")
 	}
 }
 
