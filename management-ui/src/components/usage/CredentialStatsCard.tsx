@@ -2,9 +2,13 @@ import { useMemo, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Card } from '@/components/ui/Card';
 import {
+  calculateCost,
   collectUsageDetails,
   buildCandidateUsageSourceIds,
+  extractTotalTokens,
   formatCompactNumber,
+  formatUsd,
+  type ModelPrice,
   normalizeAuthIndex
 } from '@/utils/usage';
 import { authFilesApi } from '@/services/api/authFiles';
@@ -22,6 +26,7 @@ export interface CredentialStatsCardProps {
   codexConfigs: ProviderKeyConfig[];
   vertexConfigs: ProviderKeyConfig[];
   openaiProviders: OpenAIProviderConfig[];
+  modelPrices: Record<string, ModelPrice>;
 }
 
 interface CredentialRow {
@@ -32,11 +37,15 @@ interface CredentialRow {
   failure: number;
   total: number;
   successRate: number;
+  totalTokens: number;
+  totalCost: number;
 }
 
 interface CredentialBucket {
   success: number;
   failure: number;
+  totalTokens: number;
+  totalCost: number;
 }
 
 export function CredentialStatsCard({
@@ -47,6 +56,7 @@ export function CredentialStatsCard({
   codexConfigs,
   vertexConfigs,
   openaiProviders,
+  modelPrices,
 }: CredentialStatsCardProps) {
   const { t } = useTranslation();
   const [authFileMap, setAuthFileMap] = useState<Map<string, CredentialInfo>>(new Map());
@@ -94,25 +104,41 @@ export function CredentialStatsCard({
       const authIdx = normalizeAuthIndex(detail.auth_index);
       const source = detail.source;
       const isFailed = detail.failed === true;
+      const totalTokens = extractTotalTokens(detail);
+      const totalCost = calculateCost(detail, modelPrices);
 
       if (!source) {
         if (!authIdx) return;
-        const fallback = fallbackByAuthIndex.get(authIdx) ?? { success: 0, failure: 0 };
+        const fallback = fallbackByAuthIndex.get(authIdx) ?? {
+          success: 0,
+          failure: 0,
+          totalTokens: 0,
+          totalCost: 0
+        };
         if (isFailed) {
           fallback.failure += 1;
         } else {
           fallback.success += 1;
         }
+        fallback.totalTokens += totalTokens;
+        fallback.totalCost += totalCost;
         fallbackByAuthIndex.set(authIdx, fallback);
         return;
       }
 
-      const bucket = bySource[source] ?? { success: 0, failure: 0 };
+      const bucket = bySource[source] ?? {
+        success: 0,
+        failure: 0,
+        totalTokens: 0,
+        totalCost: 0
+      };
       if (isFailed) {
         bucket.failure += 1;
       } else {
         bucket.success += 1;
       }
+      bucket.totalTokens += totalTokens;
+      bucket.totalCost += totalCost;
       bySource[source] = bucket;
 
       if (authIdx && !sourceToAuthIndex.has(source)) {
@@ -129,6 +155,8 @@ export function CredentialStatsCard({
       if (!target) return;
       target.success += bucket.success;
       target.failure += bucket.failure;
+      target.totalTokens += bucket.totalTokens;
+      target.totalCost += bucket.totalCost;
       target.total = target.success + target.failure;
       target.successRate = target.total > 0 ? (target.success / target.total) * 100 : 100;
     };
@@ -144,11 +172,15 @@ export function CredentialStatsCard({
       const candidates = buildCandidateUsageSourceIds({ apiKey, prefix });
       let success = 0;
       let failure = 0;
+      let totalTokens = 0;
+      let totalCost = 0;
       candidates.forEach((id) => {
         const bucket = bySource[id];
         if (bucket) {
           success += bucket.success;
           failure += bucket.failure;
+          totalTokens += bucket.totalTokens;
+          totalCost += bucket.totalCost;
           consumedSourceIds.add(id);
         }
       });
@@ -162,6 +194,8 @@ export function CredentialStatsCard({
           failure,
           total,
           successRate: (success / total) * 100,
+          totalTokens,
+          totalCost,
         });
       }
     };
@@ -188,11 +222,15 @@ export function CredentialStatsCard({
 
       let success = 0;
       let failure = 0;
+      let totalTokens = 0;
+      let totalCost = 0;
       candidates.forEach((id) => {
         const bucket = bySource[id];
         if (bucket) {
           success += bucket.success;
           failure += bucket.failure;
+          totalTokens += bucket.totalTokens;
+          totalCost += bucket.totalCost;
           consumedSourceIds.add(id);
         }
       });
@@ -207,6 +245,8 @@ export function CredentialStatsCard({
           failure,
           total,
           successRate: (success / total) * 100,
+          totalTokens,
+          totalCost,
         });
       }
     });
@@ -224,6 +264,8 @@ export function CredentialStatsCard({
         failure: bucket.failure,
         total,
         successRate: total > 0 ? (bucket.success / total) * 100 : 100,
+        totalTokens: bucket.totalTokens,
+        totalCost: bucket.totalCost,
       };
       const rowIndex = result.push(row) - 1;
       const authIdx = sourceToAuthIndex.get(key);
@@ -261,13 +303,15 @@ export function CredentialStatsCard({
         success: bucket.success,
         failure: bucket.failure,
         total,
-        successRate: (bucket.success / total) * 100
+        successRate: (bucket.success / total) * 100,
+        totalTokens: bucket.totalTokens,
+        totalCost: bucket.totalCost
       }) - 1;
       authIndexToRowIndex.set(authIdx, rowIndex);
     });
 
     return result.sort((a, b) => b.total - a.total);
-  }, [usage, geminiKeys, claudeConfigs, codexConfigs, vertexConfigs, openaiProviders, authFileMap]);
+  }, [usage, geminiKeys, claudeConfigs, codexConfigs, vertexConfigs, openaiProviders, authFileMap, modelPrices]);
 
   return (
     <Card title={t('usage_stats.credential_stats')} className={styles.detailsFixedCard}>
@@ -282,6 +326,8 @@ export function CredentialStatsCard({
                 <th>{t('usage_stats.credential_name')}</th>
                 <th>{t('usage_stats.requests_count')}</th>
                 <th>{t('usage_stats.success_rate')}</th>
+                <th>{t('usage_stats.total_tokens')}</th>
+                <th>{t('usage_stats.total_cost')}</th>
               </tr>
             </thead>
             <tbody>
@@ -315,6 +361,8 @@ export function CredentialStatsCard({
                       {row.successRate.toFixed(1)}%
                     </span>
                   </td>
+                  <td>{formatCompactNumber(row.totalTokens)}</td>
+                  <td>{row.totalCost > 0 ? formatUsd(row.totalCost) : '--'}</td>
                 </tr>
               ))}
             </tbody>
